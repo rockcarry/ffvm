@@ -1,47 +1,70 @@
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include "ffvm.h"
+
 typedef struct {
     #define PS_C (1 << 0)
     #define PS_Z (1 << 1)
     #define PS_N (1 << 2)
     uint32_t eax;
     uint32_t ebx;
+    uint32_t ecx;
+    uint32_t edx;
     uint32_t ebp;
     uint32_t esp;
-    uint32_t epc;
     uint32_t eps;
+    uint32_t epc;
     uint8_t *mem_buf ;
-    uin32_t  mem_size;
+    uint32_t mem_size;
 } FFVM;
 
-#define VM_MEM_READ8(vm, addr)        ((addr) < (vm)->mem_size ? (vm)->mem_buf[addr] : 0xff)
-#define VM_MEM_WRITE8(vm, addr, val)  do { if ((addr) < (vm)->mem_size) (vm)->mem_buf[addr] = val; } while (0)
+static uint8_t VM_MEM_READ8(FFVM *vm, uint32_t addr)
+{
+    return addr < vm->mem_size ? vm->mem_buf[addr] : 0xff;
+}
+
+static void VM_MEM_WRITE8(FFVM *vm, uint32_t addr, uint8_t val)
+{
+    if (addr < vm->mem_size) vm->mem_buf[addr] = val;
+}
 
 static uint16_t VM_MEM_READ16(FFVM *vm, uint32_t addr)
 {
-    return addr + 1 < vm->mem_size ? *(uint16_t*)&vm->mem_buf[addr] : 0xffff;
+    return addr < vm->mem_size ? *(uint16_t*)&vm->mem_buf[addr] : 0;
 }
 
 static void VM_MEM_WRITE16(FFVM *vm, uint32_t addr, uint16_t val)
 {
-    if (addr + 1 < vm->mem_size) *(uint16_t*)&vm->mem_buf[addr] = val;
+    if (addr < vm->mem_size) *(uint16_t*)&vm->mem_buf[addr] = val;
 }
 
 static uint32_t VM_MEM_READ32(FFVM *vm, uint32_t addr)
 {
-    return addr + 3 < vm->mem_size ? *(uint32_t*)&vm->mem_buf[addr] : 0xffffffff;
+    return addr < vm->mem_size ? *(uint32_t*)&vm->mem_buf[addr] : 0;
 }
 
 static void VM_MEM_WRITE32(FFVM *vm, uint32_t addr, uint32_t val)
 {
-    if (addr + 3 < vm->mem_size) *(uint32_t*)&vm->mem_buf[addr] = val;
+    if (addr < vm->mem_size) *(uint32_t*)&vm->mem_buf[addr] = val;
 }
 
+static void ffmv_dump(void *ctx)
+{
+    FFVM *vm = (FFVM*)ctx;
+    if (vm) {
+        printf("eax      ebx      ecx      edx      ebp      esp      eps      epc\n");
+        printf("%08x %08x %08x %08x %08x %08x %08x %08x\n\n", vm->eax, vm->ebx, vm->ecx, vm->edx, vm->ebp, vm->esp, vm->eps, vm->epc);
+    }
+}
 
 void* ffvm_init(int memsize)
 {
     FFVM *vm = malloc(sizeof(FFVM));
     if (!vm) return NULL;
-    vm->mem_buf = malloc(memsize);
-    vm->mem_size= vm->mem_buf ? 0 : memsize;
+    vm->mem_buf = malloc(memsize + 4);
+    vm->mem_size= vm->mem_buf ? memsize : 0;
     ffvm_reset(vm);
     return vm;
 }
@@ -60,131 +83,156 @@ void ffvm_exit(void *ctx)
 void ffvm_reset(void *ctx)
 {
     FFVM *vm = (FFVM*)ctx;
-    if (vm) vm->eax = vm->ebx = vm->ebp = vm->esp = vm->epc = vm->eps = 0;
+    if (vm) vm->eax = vm->ebx = vm->ecx = vm->edx = vm->ebp = vm->esp = vm->epc = vm->eps = 0;
+}
+
+static void* fetch_opnd_ptr(FFVM *vm, uint8_t type, uint8_t *size)
+{
+    if (type < 7) {
+        *size = 4;
+        return &vm->eax + type;
+    } else {
+        switch (type) {
+        case 7 : *size = 2; return (uint16_t*)&vm->eax;
+        case 8 : *size = 2; return (uint16_t*)&vm->ebx;
+        case 9 : *size = 1; return (uint8_t *)&vm->eax;
+        case 10: *size = 1; return (uint8_t *)&vm->eax + 1;
+        case 11: *size = 1; return (uint8_t *)&vm->ebx;
+        case 12: *size = 1; return (uint8_t *)&vm->ebx + 1;
+        case 13: *size = 1; break;
+        case 14: *size = 2; break;
+        case 15: *size = 4; break;
+        }
+    }
+    return NULL;
+}
+
+static uint32_t fetch_opnd_val(FFVM *vm, uint8_t type, uint8_t *size)
+{
+    uint32_t val;
+    if (type < 7) {
+        *size = 4;
+        return *(&vm->eax + type);
+    } else {
+        switch (type) {
+        case 7 : *size = 2; return  vm->eax & 0xffff;
+        case 8 : *size = 2; return  vm->ebx & 0xffff;
+        case 9 : *size = 1; return  vm->eax & 0x00ff;
+        case 10: *size = 1; return (vm->eax >> 8) & 0x00ff;
+        case 11: *size = 1; return  vm->ebx & 0x00ff;
+        case 12: *size = 1; return (vm->ebx >> 8) & 0x00ff;
+        case 13: *size = 1; val = VM_MEM_READ8 (vm, vm->epc); vm->epc += 1; return val;
+        case 14: *size = 2; val = VM_MEM_READ16(vm, vm->epc); vm->epc += 2; return val;
+        case 15: *size = 4; val = VM_MEM_READ32(vm, vm->epc); vm->epc += 4; return val;
+        }
+    }
+    return 0;
 }
 
 int ffvm_run(void *ctx)
 {
-    uint8_t   opcode, optr;
-    uint8_t  *p8dst , *p8src;
-    uint16_t *p16dst, *p16src;
-    uint32_t *p32dst, *p32src;
+    uint8_t opcode, opndtype, srcsize, dstsize;
+    uint32_t opnd1, opnd2, *opndptr;
     FFVM *vm = (FFVM*)ctx;
     if (!ctx) return -1;
 
-    opcode = VM_MEM_READB(vm, vm->epc); vm->epc++;
-    switch (opcode) {
-    case 0x1C: vm->esp-= 4; vm->epc = VM_MEM_READ32(vm, vm->esp); continue; // ret
-    case 0x21: vm->eps&=~PS_C;    continue; // clc
-    case 0x26: vm->eax = vm->eps; continue; // mov eax, eps
-    case 0x2B: vm->eps = vm->eax; continue; // mov eps, eax
+    opcode = VM_MEM_READ8(vm, vm->epc); vm->epc++;
+    if (opcode >= 0 && opcode <= 0x0B) {
+        switch (opcode) {
+        case 0x00: break; // nop
+        case 0x01: return -1; // hlt
+        case 0x02: break; // int
+        case 0x03: break; // nop
+        case 0x04: vm->eps &= ~PS_C; break; // clc
+        case 0x05: vm->eps &= ~PS_Z; break; // clz
+        case 0x06: vm->eps &= ~PS_N; break; // cln
+        case 0x07: break; // nop
+        case 0x08: vm->eps |=  PS_C; break; // slc
+        case 0x09: vm->eps |=  PS_Z; break; // slz
+        case 0x0A: vm->eps |=  PS_N; break; // sln
+        case 0x0B: break; // nop
+        case 0x0C: break; // nop
+        case 0x0D: break; // nop
+        case 0x0E: break; // nop
+        case 0x0F: break; // nop
+        }
+        return 0;
     }
+
+    opndtype = VM_MEM_READ8(vm, vm->epc); vm->epc++;
+    if (opcode & (1 << 0)) {
+        opnd1   = fetch_opnd_val(vm, opndtype & 0xF, &dstsize);
+        opndptr = opnd1 < vm->mem_size ? (uint32_t*)&vm->mem_buf[opnd1] : NULL;
+        opnd1   = opndptr ? *opndptr : 0;
+        dstsize = 4;
+    } else {
+        opndptr = fetch_opnd_ptr(vm, opndtype & 0xF, &dstsize);
+        opnd1   = opndptr ? *opndptr : fetch_opnd_val(vm, opndtype & 0xF, &dstsize);
+    }
+
+    opnd2 = fetch_opnd_val(vm, (opndtype >> 4) & 0xF, &srcsize);
+    if (opcode & (1 << 1)) {
+        opnd2   = VM_MEM_READ32(vm, opnd2);
+        srcsize = dstsize;
+    }
+    if (opcode & (1 << 0)) dstsize = srcsize;
 
     switch (opcode >> 2) {
-    case 0x01:
-    case 0x02:
-        if (opcode & (1 << 2)) {
-            p8dst  = (uint8_t*)&vm->eax + !!(opcode & (1 << 1));
-        } else {
-            p8dst  = (uint8_t*)&vm->ebx + !!(opcode & (1 << 1));
-        }
-        if (opcode & (1 << 0)) {
-            *p8dst = VM_MEM_READ8(vm, vm->epc); vm->epc++;
-        } else {
-            *p8dst = VM_MEM_READ8(vm, VM_MEM_READ32(vm, vm->epc)); vm->epc += 4;
-        }
-        break;
-    case 0x03:
-        if (opcode & (1 << 1)) {
-            p16dst  = (uint16_t*)&vm->eax;
-        } else {
-            p16dst  = (uint16_t*)&vm->ebx;
-        }
-        if (opcode & (1 << 0)) {
-            *p16dst = VM_MEM_READ16(vm, vm->epc); vm->epc += 2;
-        } else {
-            *p16dst = VM_MEM_READ16(vm, VM_MEM_READ32(vm, vm->epc)); vm->epc += 4;
-        }
-        break;
-    case 0x04:
-        if (opcode & (1 << 1)) {
-            p32dst  = (uint32_t*)&vm->eax;
-        } else {
-            p32dst  = (uint32_t*)&vm->ebx;
-        }
-        if (opcode & (1 << 0)) {
-            *p32dst = VM_MEM_READ32(vm, vm->epc); vm->epc += 4;
-        } else {
-            *p32dst = VM_MEM_READ32(vm, VM_MEM_READ32(vm, vm->epc)); vm->epc += 4;
-        }
-        break;
-    case 0x05:
-        if (opcode & (1 << 1)) {
-            p8src  = (uint8_t*)&vm->eax + (opcode & (1 << 0));
-        } else {
-            p8src  = (uint8_t*)&vm->ebx + (opcode & (1 << 0));
-        }
-        VM_MEM_WRITE8(vm, VM_MEM_READ32(vm, vm->epc), *p8src); vm->epc += 4;
-        break;
-    case 0x06:
-        if (opcode & (1 << 1)) {
-            p16src = opcode & (1 << 0) ? (uint16_t*)vm->eax : (uint16_t*)vm->ebx;
-            VM_MEM_WRITE16(vm, VM_MEM_READ32(vm, vm->epc), *p16src); vm->epc += 4;
-        } else {
-            p32src = opcode & (1 << 0) ? (uint32_t*)vm->eax : (uint32_t*)vm->ebx;
-            VM_MEM_WRITE32(vm, VM_MEM_READ32(vm, vm->epc), *p32src); vm->epc += 4;
-        }
-        break;
-    case 0x07:
-    case 0x08:
-    case 0x09:
-    case 0x0A:
-        if (opcode & (1 << 1)) {
-            p8src = (uint8_t)&vm->eax + (opcode & (1 << 0));
-        } else {
-            p8src = (uint8_t)&vm->ebx + (opcode & (1 << 0));
-        }
-        if (opcode & (1 << 2)) {
-            *((uint8_t*)&vm->eax + (1 << 0)) = *p8src;
-        } else {
-            *((uint8_t*)&vm->ebx + (1 << 0)) = *p8src;
-        }
-        break;
-    case 0x0B:
-        if (opcode & (1 << 1)) {
-            if (opcode & (1 << 0)) {
-                vm->eps &= ~PS_N;
-            } else {
-                vm->eps &= ~PS_Z;
-            }
-        } else {
-            if (opcode & (1 << 0)) {
-                *(uint16_t*)&vm->ebx = *(uint16_t*)&vm->eax;
-            } else {
-                *(uint16_t*)&vm->eax = *(uint16_t*)&vm->ebx;
-            }
-        }
-        break;
-    case 0x0C:
-    case 0x0D:
-        if (opcode & (1 << 2)) {
-            if (opcode & (3 << 0)) {
-                vm->ebx = *((uint32_t*)&vm->ebx + (opcode & (3 << 0)))
-            } else {
-                vm->ebx = vm->eax;
-            }
-        } else {
-            vm->eax = *((uint32_t*)&vm->ebx + (opcode & (3 << 0)));
-        }
-        break;
-    case 0x0E:
-        *((uint32_t*)vm->ebp + !!(opcode & (1 << 1))) = *((uint32_t*)vm->eax + (opcode & (1 << 0)));
-        break;
+    case 0x03: opnd1  = opnd2; break; // mov
+    case 0x04: opnd1 += opnd2; break; // add
+    case 0x05: opnd1 += opnd2 + (vm->eps & (PS_C)); break; // adc
+    case 0x06: opnd1 -= opnd2; break; // sub
+    case 0x07: opnd1 -= opnd2 + (vm->eps & (PS_C)); break; // sbb
+    case 0x08: opnd1 *= opnd2; break; // umul
+    case 0x09: *(int32_t*)&opnd1 *= (int32_t)opnd2; break; // imul
+    case 0x0A: opnd1 /= opnd2; break; // udiv
+    case 0x0B: *(int32_t*)&opnd1 /= (int32_t)opnd2; break; // idiv
+    case 0x0C: *(float*)&opnd1 += (float)opnd2; break; // fadd
+    case 0x0D: *(float*)&opnd1 -= (float)opnd2; break; // fsub
+    case 0x0E: *(float*)&opnd1 *= (float)opnd2; break; // fmul
+    case 0x0F: *(float*)&opnd1 /= (float)opnd2; break; // fdiv
+    case 0x10: opnd1 &= opnd2; break; // and
+    case 0x11: opnd1 |= opnd2; break; // or
+    case 0x12: opnd1  =~opnd1; break; // not
+    case 0x13: opnd1 ^= opnd2; break; // xor
     }
+
+    if (opndptr) memcpy(opndptr, &opnd1, dstsize);
+    return 0;
 }
 
+#if 1
+static uint8_t g_test_code[] = {
+    0x08, // slc
+    0x09, // slz
+    0x0A, // sln
 
+    0x04, // clc
+    0x05, // clz
+    0x06, // cln
 
+    (3 << 2) | (0 << 0), 0xF0, 0x12, 0x34, 0x56, 0x78, // mov eax, imm32
+    (3 << 2) | (0 << 0), 0xF1, 0x11, 0x22, 0x33, 0x44, // mov ebx, imm32
+    (3 << 2) | (0 << 0), 0xF2, 0x55, 0x66, 0x77, 0x88, // mov ecx, imm32
+    (3 << 2) | (0 << 0), 0xF3, 0x99, 0xAA, 0xBB, 0xCC, // mov edx, imm32
+    (3 << 2) | (0 << 0), 0xF4, 0xDD, 0xEE, 0xFF, 0x00, // mov ebp, imm32
+    (3 << 2) | (0 << 0), 0xF5, 0xEF, 0xCD, 0xAB, 0x89, // mov esp, imm32
+    (3 << 2) | (0 << 0), 0xF6, 0x76, 0x54, 0x32, 0x11, // mov eps, imm32
+
+    0x00, // nop
+    0x01, // hlt
+};
+
+int main(void)
+{
+    void *vm = ffvm_init(64 * 1024);
+    memcpy(((FFVM*)vm)->mem_buf, g_test_code, sizeof(g_test_code));
+    while (ffvm_run(vm) == 0) {
+        ffmv_dump(vm);
+    }
+    ffvm_exit(vm);
+}
+#endif
 
 
 

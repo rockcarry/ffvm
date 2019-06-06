@@ -1,274 +1,63 @@
-eax ebx ebp esp epc eps
-eps c z n
+eax ebx ecx edx ebp esp eps epc 
+ax bx al ah bl bh imm8 imm16 imm32
 
-load8a       al/ah                   imm/mem  length
-load_al_imm  (0000 01 00)   load al, imm      2bytes
-load_al_mem  (0000 01 01)   load al, mem      5bytes
-load_ah_imm  (0000 01 10)   load ah, imm      2bytes
-load_ah_mem  (0000 01 11)   load ah, mem      5bytes
+nop hlt int nop
+       (0000 00 00)
+       (0000 00 01)
+       (0000 00 10)
+       (0000 00 11)
 
-load8b       bl/bh                   imm/mem  length
-load_bl_imm  (0000 10 00)   load bl, imm      2bytes
-load_bl_mem  (0000 10 01)   load bl, mem      5bytes
-load_bh_imm  (0000 10 10)   load bh, imm      2bytes
-load_bh_mem  (0000 10 11)   load bh, mem      5bytes
+clc clz cln nop
+       (0000 01 00)
+       (0000 01 01)
+       (0000 01 10)
+       (0000 01 11)
 
-load16       ax/bx                   imm/mem  length
-load_ax_imm  (0000 11 00)   load ax, imm      3bytes
-load_ax_mem  (0000 11 01)   load ax, mem      5bytes
-load_bx_imm  (0000 11 10)   load bx, imm      3bytes
-load_bx_mem  (0000 11 11)   load bx, mem      5bytes
+slc slz sln nop
+       (0000 10 00)
+       (0000 10 01)
+       (0000 10 10)
+       (0000 10 11)
 
-load32       eax/ebx                 imm/mem
-load_eax_imm (0001 00 00)  load eax, imm      5bytes
-load_eax_mem (0001 00 01)  load eax, mem      5bytes
-load_ebx_imm (0001 00 10)  load ebx, imm      5bytes
-load_ebx_mem (0001 00 11)  load ebx, mem      5bytes
+mov    (0000 11 xx)
+add    (0001 00 xx)
+adc    (0001 01 xx)
+sub    (0001 10 xx)
+sbb    (0001 11 xx)
+umul
+imul
+udiv
+idiv
+fadd
+fsub
+fmul
+fdiv
+and
+or
+not
+xor
+shl
+shr
+rol
+ror
+push
+pop
+jmp
+nop
+jz
+jnz
+jg
+jge
+jl
+jle
+jc
+jnc
+iext
+uext
+itof
+ftoi
 
-store8       al/ah/bl/bh             mem
-store_al     (0001 01 00)  store al, mem      5bytes
-store_ah     (0001 01 01)  store ah, mem      5bytes
-store_bl     (0001 01 10)  store bl, mem      5bytes
-store_bh     (0001 01 11)  store bh, mem      5bytes
-
-store1632    16/32 ax/bx/eax/ebx     mem
-store_ax     (0001 10 00) store ax , mem      5bytes
-store_bx     (0001 10 01) store bx , mem      5bytes
-store_eax    (0001 10 10) store eax, mem      5bytes
-store_ebx    (0001 10 11) store ebx, mem      5bytes
-
-moval        al/ah/bl/bh  ret
-ret          (0001 11 00) ret                 1byte
-mov_al_ah    (0001 11 01) mov al, ah          1byte
-mov_al_bl    (0001 11 10) mov al, bl          1byte
-mov_al_bh    (0001 11 11) mov al, bh          1byte
-
-movbl        al/ah/bl/bh  mov_eax_eps
-mov_bl_al    (0010 00 00) mov bl, al          1byte
-mov_bl_ah    (0010 00 01) mov bl, ah          1byte
-mov_eax_eps  (0010 00 10) mov eax,eps         1byte
-mov_bl_bh    (0010 00 11) mov bl, bh          1byte
-
-movah        al/ah/bl/bh  clc
-mov_ah_al    (0010 01 00) mov ah, al          1byte
-nop          (0010 01 01) clc                 1byte
-mov_ah_bl    (0010 01 10) mov ah, bl          1byte
-mov_ah_bh    (0010 01 11) mov ah, bh          1byte
-
-movbh        al/ah/bl/bh  mov_eps_eax
-mov_bh_al    (0010 10 00) mov bh, al          1byte
-mov_bh_ah    (0010 10 01) mov bh, ah          1byte
-mov_bh_bl    (0010 10 10) mov bh, bl          1byte
-mov_eps_eax  (0010 10 11) mov eps,eax         1byte
-
-mov16 clz cln
-mov_ax_bx    (0010 11 00) mov ax, bx          1byte
-mov_bx_ax    (0010 11 01) mov bx, ax          1byte
-clz          (0010 11 10) clz                 1byte
-cln          (0010 11 11) cln                 1byte
-
-moveax       ebx/ebp/esp/epc
-mov_eax_ebx  (0011 00 00) mov eax, ebx        1byte
-mov_eax_ebp  (0011 00 01) mov eax, ebp        1byte
-mov_eax_esp  (0011 00 10) mov eax, esp        1byte
-mov_eax_epc  (0011 00 11) mov eax, epc        1byte
-
-movebx       eax/ebp/esp/epc
-mov_ebx_eax  (0011 01 00) mov ebx, eax        1byte
-mov_ebx_ebp  (0011 01 01) mov ebx, ebp        1byte
-mov_ebx_esp  (0011 01 10) mov ebx, esp        1byte
-mov_ebx_epc  (0011 01 11) mov ebx, epc        1byte
-
-movebpesp    ebp/esp eax/ebx
-mov_ebp_eax  (0011 10 00) mov ebp, eax        1byte
-mov_ebp_ebx  (0011 10 01) mov ebp, ebx        1byte
-mov_esp_eax  (0011 10 10) mov esp, eax        1byte
-mov_esp_ebx  (0011 10 11) mov esp, ebx        1byte
-
-addeax       ebx/ebp/esp/imm
-add_eax_ebx  (0011 11 00) add eax, ebx        1byte
-add_eax_ebp  (0011 11 01) add eax, ebp        1byte
-add_eax_esp  (0011 11 10) add eax, esp        1byte
-add_eax_imm  (0011 11 11) add eax, imm        5bytes
-
-adceax       ebx/ebp/esp/imm
-adc_eax_ebx  (0100 00 00) adc eax, ebx        1byte
-adc_eax_ebp  (0100 00 01) adc eax, ebp        1byte
-adc_eax_esp  (0100 00 10) adc eax, esp        1byte
-adc_eax_imm  (0100 00 11) adc eax, imm        5bytes
-
-subeax       ebx/ebp/esp/imm
-sub_eax_ebx  (0100 01 00) sub eax, ebx        1byte
-sub_eax_ebp  (0100 01 01) sub eax, ebp        1byte
-sub_eax_esp  (0100 01 10) sub eax, esp        1byte
-sub_eax_imm  (0100 01 11) sub eax, imm        5bytes
-
-sbbeax       eax/ebp/esp/imm
-sbb_eax_ebx  (0100 10 00) sbb eax, ebx        1byte
-sbb_eax_ebp  (0100 10 01) sbb eax, ebp        1byte
-sbb_eax_esp  (0100 10 10) sbb eax, esp        1byte
-sbb_eax_imm  (0100 10 11) sbb eax, imm        5bytes
-
-umuleax      ebx/ebp/esp/imm
-umul_eax_ebx (0100 11 00) umul eax, ebx       1byte
-umul_eax_ebp (0100 11 01) umul eax, ebp       1byte
-umul_eax_esp (0100 11 10) umul eax, esp       1byte
-umul_eax_imm (0100 11 11) umul eax, imm       5bytes
-
-imuleax      eax/ebp/esp/imm
-imul_eax_ebx (0101 00 00) imul eax, ebx       1byte
-imul_eax_ebp (0101 00 01) imul eax, ebp       1byte
-imul_eax_esp (0101 00 10) imul eax, esp       1byte
-imul_eax_imm (0101 00 11) imul eax, imm       5bytes
-
-udiveax      ebx/ebp/esp/imm
-udiv_eax_ebx (0101 01 00) udiv eax, ebx       1byte
-udiv_eax_ebp (0101 01 01) udiv eax, ebp       1byte
-udiv_eax_esp (0101 01 10) udiv eax, esp       1byte
-udiv_eax_imm (0101 01 11) udiv eax, imm       5bytes
-
-idiveax      eax/ebp/esp/imm
-idiv_eax_ebx (0101 10 00) idiv eax, ebx       1byte
-idiv_eax_ebp (0101 10 01) idiv eax, ebp       1byte
-idiv_eax_esp (0101 10 10) idiv eax, esp       1byte
-idiv_eax_imm (0101 10 11) idiv eax, imm       5bytes
-
-umodeax      ebx/ebp/esp/imm
-umod_eax_ebx (0101 11 00) umod eax, ebx       1byte
-umod_eax_ebp (0101 11 01) umod eax, ebp       1byte
-umod_eax_esp (0101 11 10) umod eax, esp       1byte
-umod_eax_imm (0101 11 11) umod eax, imm       5bytes
-
-imodeax      eax/ebp/esp/imm
-imod_eax_ebx (0110 00 00) imod eax, ebx       1byte
-imod_eax_ebp (0110 00 01) imod eax, ebp       1byte
-imod_eax_esp (0110 00 10) imod eax, esp       1byte
-imod_eax_imm (0110 00 11) imod eax, imm       5bytes
-
-andeax       ebx/ebp/esp/imm
-and_eax_ebx  (0110 01 00) and eax, ebx        1byte
-and_eax_ebp  (0110 01 01) and eax, ebp        1byte
-and_eax_esp  (0110 01 10) and eax, esp        1byte
-and_eax_imm  (0110 01 11) and eax, imm        5bytes
-
-oreax        ebx/ebp/esp/imm
-or_eax_ebx   (0110 10 00) or eax, ebx         1byte
-or_eax_ebp   (0110 10 01) or eax, ebp         1byte
-or_eax_esp   (0110 10 10) or eax, esp         1byte
-or_eax_imm   (0110 10 11) or eax, imm         5bytes
-
-xoreax       ebx/ebp/esp/imm
-xor_eax_ebx  (0110 11 00) xor eax, ebx        1byte
-xor_eax_ebp  (0110 11 01) xor eax, ebp        1byte
-xor_eax_esp  (0110 11 10) xor eax, esp        1byte
-xor_eax_imm  (0110 11 11) xor eax, imm        5bytes
-
-shlr         l/r eax/ebx
-shl_eax      (0111 00 00) shl eax             1byte
-shl_ebx      (0111 00 01) shl ebx             1byte
-shr_eax      (0111 00 10) shr eax             1byte
-shr_ebx      (0111 00 11) shr ebx             1byte
-
-rolr         l/r eax/ebx
-rol_eax      (0111 01 00) rol eax             1byte
-rol_ebx      (0111 01 01) rol ebx             1byte
-ror_eax      (0111 01 10) ror eax             1byte
-ror_ebx      (0111 01 11) ror ebx             1byte
-
-not_ax_bx/clr_ax_bx
-not_ax       (0111 10 00) not eax             1byte
-not_bx       (0111 10 01) not ebx             1byte
-clr_ax       (0111 10 10) clr eax             1byte
-clr_bx       (0111 10 11) clr ebx             1byte
-
-fadd/fsub/fmul/fdiv      eax * ebx
-fadd         (0111 11 00) fadd eax, ebx       1byte
-fsub         (0111 11 01) fsub eax, ebx       1byte
-fmul         (0111 11 10) fmul eax, ebx       1byte
-fdiv         (0111 11 11) fdiv eax, ebx       1byte
-
-lfadd/lfsub/lfmul/lfdiv [eax]*[ebx]
-lfadd        (1000 00 00) lfadd [eax], [ebx]  1byte
-lfsub        (1000 00 01) lfsub [eax], [ebx]  1byte
-lfmul        (1000 00 10) lfmul [eax], [ebx]  1byte
-lfdiv        (1000 00 11) lfdiv [eax], [ebx]  1byte
-
-push8        al/ah/bl/bh
-push_al      (1000 01 00) push al             1byte
-push_ah      (1000 01 01) push ah             1byte
-push_bl      (1000 01 10) push bl             1byte
-push_bh      (1000 01 11) push bh             1byte
-
-pop_8        al/ah/bl/bh
-pop_al       (1000 10 00) pop al              1byte
-pop_ah       (1000 10 01) pop ah              1byte
-pop_bl       (1000 10 10) pop bl              1byte
-pop_bh       (1000 10 11) pop bh              1byte
-
-push_pop16   push/pop ax/bx
-push_ax      (1000 11 00) push ax             1byte
-push_bx      (1000 11 01) push bx             1byte
-pop_ax       (1000 11 10) pop  ax             1byte
-pop_bx       (1000 11 11) pop  bx             1byte
-
-push32       eax/ebx/ebp/epc
-push_eax     (1001 00 00) push eax            1byte
-push_ebx     (1001 00 01) push ebx            1byte
-push_ebp     (1001 00 10) push ebp            1byte
-push_epc     (1001 00 11) push epc            1byte
-
-pop_32       eax/ebx/ebp/epc
-pop_eax      (1001 01 00) pop eax             1byte
-pop_ebx      (1001 01 01) pop ebx             1byte
-pop_ebp      (1001 01 10) pop ebp             1byte
-pop_epc      (1001 01 11) pop epc             1byte
-
-pushpopx     pushf/popf/pusha/popa
-push_eps     (1001 10 00) push eps            1byte
-pop_eps      (1001 10 01) pop  eps            1byte
-pusha        (1001 10 10) pusha               1byte
-popa         (1001 10 11) popa                1byte
-
-jmp          ax/bx/imm/mem
-jmp_ax       (1001 11 00) jmp ax              1byte
-jmp_abs      (1001 11 01) jmp abs             5bytes
-jmp_rel      (1001 11 10) jmp rel             5bytes
-jmp_mem      (1001 11 11) jmp mem             5bytes
-
-call         ax/bx/imm/mem
-call_ax      (1010 00 00) call ax             1byte
-call_bx      (1010 00 01) call bx             1byte
-call_imm     (1010 00 10) call imm            5bytes
-call_mem     (1010 00 11) call mem            5bytes
-
-jz/jnz/jg/jge
-jz           (1010 01 00) jz  imm             5bytes
-jnz          (1010 01 01) jnz imm             5bytes
-jg           (1010 01 10) jg  imm             5bytes
-jge          (1010 01 11) jge imm             5bytes
-
-jl/jle/jc/jnc
-jl           (1010 10 00) jl  imm             5bytes
-jle          (1010 10 01) jle imm             5bytes
-jc           (1010 10 10) jc  imm             5bytes
-jnc          (1010 10 11) jnc imm             5bytes
-
-ext8         al/bl signed/unsigned
-iext_al      (1010 11 00) iext al             1byte
-uext_al      (1010 11 01) uext al             1byte
-iext_bl      (1010 11 10) iext bl             1byte
-uext_bl      (1010 11 11) uext bl             1byte
-
-ext16        ax/bx signed/unsigned
-iext_ax      (1011 00 00) iext ax             1byte
-uext_ax      (1011 00 01) uext ax             1byte
-iext_bx      (1011 00 10) iext bx             1byte
-uext_bx      (1011 00 11) uext bx             1byte
-
-native_push/native_pop/native_call/
-native_addr/native_read/native_write/
-
-
-
+lfadd lfsub lfmul lfdiv
+itolf lftoi ftolf lftof
 
 
