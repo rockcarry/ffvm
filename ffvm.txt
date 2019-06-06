@@ -1,6 +1,64 @@
-eax ebx ecx edx ebp esp eps epc 
-ax bx al ah bl bh imm8 imm16 imm32
+regs:
+eax    ebx    ecx    edx    ebp    esp    eps    epc
+ ax     bx
+ ah al  bh bl
 
+1byte instruction:
+opcode
+
+multi-bytes instruction:
+opcode opnd1 opnd2 ... opndn
+
+opcode:
+7  2  1             0
+optr  src-indirect  dst-indirect
+
+opnd1:
+7                 4   3                 0
+src addressing mode   dst addressing mode
+
+addressing mode:
+0    1    2    3    4    5    6    7    8    9    A    B    C    D    E     F
+eax  ebx  ecx  edx  ebp  esp  eps  ax   bx   al   ah   bl   bh   imm8 imm16 imm32
+
+all addressing modes:
+reg <- imm
+mov eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh imm8/imm16/imm32
+
+reg <- reg
+mov eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh
+
+reg <- [imm]
+mov eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh [imm8/imm16/imm32]
+
+reg <- [reg]
+mov eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh]
+
+[imm] <- imm
+mov [imm8/imm16/imm32] imm8/imm16/imm32
+
+[imm] <- reg
+mov [imm8/imm16/imm32] eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh
+
+[imm] <- [imm]
+mov [imm8/imm16/imm32] [imm8/imm16/imm32]
+
+[imm] <- [reg]
+mov [imm8/imm16/imm32] [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh]
+
+[reg] <- imm
+mov [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh] imm8/imm16/imm32
+
+[reg] <- reg
+mov [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh] eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh
+
+[reg] <- [imm]
+mov [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh] [imm8/imm16/imm32]
+
+[reg] <- [reg]
+mov [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh] [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh]
+
+all opcodes:
 nop hlt int nop
        (0000 00 00)
        (0000 00 01)
@@ -24,40 +82,9 @@ add    (0001 00 xx)
 adc    (0001 01 xx)
 sub    (0001 10 xx)
 sbb    (0001 11 xx)
-umul
-imul
-udiv
-idiv
-fadd
-fsub
-fmul
-fdiv
-and
-or
-not
-xor
-shl
-shr
-rol
-ror
-push
-pop
-jmp
-nop
-jz
-jnz
-jg
-jge
-jl
-jle
-jc
-jnc
-iext
-uext
-itof
-ftoi
-
-lfadd lfsub lfmul lfdiv
-itolf lftoi ftolf lftof
+umul imul udiv idiv fadd fsub fmul fdiv and or not xor shl shr rol ror
+push pop jmp jz jnz jg jge jl jle jc jnc
+iext uext itof ftoi
+lfadd lfsub lfmul lfdiv itolf lftoi ftolf lftof
 
 

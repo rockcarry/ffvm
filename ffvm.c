@@ -55,7 +55,11 @@ static void ffmv_dump(void *ctx)
     FFVM *vm = (FFVM*)ctx;
     if (vm) {
         printf("eax      ebx      ecx      edx      ebp      esp      eps      epc\n");
-        printf("%08x %08x %08x %08x %08x %08x %08x %08x\n\n", vm->eax, vm->ebx, vm->ecx, vm->edx, vm->ebp, vm->esp, vm->eps, vm->epc);
+        printf("%08x %08x %08x %08x %08x %08x %08x %08x\n"  , vm->eax, vm->ebx, vm->ecx, vm->edx, vm->ebp, vm->esp, vm->eps, vm->epc);
+        printf("[0x8000] [0x8004] [0x8008] [0x800C] [0x8010] [0x8014] [0x8018] [0x801C]\n");
+        printf("%08x %08x %08x %08x %08x %08x %08x %08x\n\n",
+               *(uint32_t*)&vm->mem_buf[0x8000], *(uint32_t*)&vm->mem_buf[0x8004], *(uint32_t*)&vm->mem_buf[0x8008], *(uint32_t*)&vm->mem_buf[0x800C],
+               *(uint32_t*)&vm->mem_buf[0x8010], *(uint32_t*)&vm->mem_buf[0x8014], *(uint32_t*)&vm->mem_buf[0x8018], *(uint32_t*)&vm->mem_buf[0x801C]);
     }
 }
 
@@ -218,6 +222,14 @@ static uint8_t g_test_code[] = {
     (3 << 2) | (0 << 0), 0xF4, 0xDD, 0xEE, 0xFF, 0x00, // mov ebp, imm32
     (3 << 2) | (0 << 0), 0xF5, 0xEF, 0xCD, 0xAB, 0x89, // mov esp, imm32
     (3 << 2) | (0 << 0), 0xF6, 0x76, 0x54, 0x32, 0x11, // mov eps, imm32
+
+    (3 << 2) | (1 << 0), 0x0E, 0x00, 0x80, // mov [0x8000], eax
+    (3 << 2) | (1 << 0), 0x1E, 0x04, 0x80, // mov [0x8004], ebx
+    (3 << 2) | (1 << 0), 0x2E, 0x08, 0x80, // mov [0x8008], ecx
+    (3 << 2) | (1 << 0), 0x3E, 0x0C, 0x80, // mov [0x800C], edx
+    (3 << 2) | (1 << 0), 0x4E, 0x10, 0x80, // mov [0x8010], ebp
+    (3 << 2) | (1 << 0), 0x5E, 0x14, 0x80, // mov [0x8014], esp
+    (3 << 2) | (1 << 0), 0x6E, 0x18, 0x80, // mov [0x8018], eps
 
     0x00, // nop
     0x01, // hlt
