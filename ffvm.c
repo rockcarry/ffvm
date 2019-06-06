@@ -5,9 +5,12 @@
 #include "ffvm.h"
 
 typedef struct {
-    #define PS_C (1 << 0)
-    #define PS_Z (1 << 1)
-    #define PS_N (1 << 2)
+    #define PS_S (1 << 31)
+    #define PS_V (1 << 30)
+    #define PS_B (1 << 3 )
+    #define PS_I (1 << 2 )
+    #define PS_Z (1 << 1 )
+    #define PS_C (1 << 0 )
     uint32_t eax;
     uint32_t ebx;
     uint32_t ecx;
@@ -146,15 +149,15 @@ int ffvm_run(void *ctx)
         case 0x00: break; // nop
         case 0x01: return -1; // hlt
         case 0x02: break; // int
-        case 0x03: break; // nop
-        case 0x04: vm->eps &= ~PS_C; break; // clc
-        case 0x05: vm->eps &= ~PS_Z; break; // clz
-        case 0x06: vm->eps &= ~PS_N; break; // cln
-        case 0x07: break; // nop
-        case 0x08: vm->eps |=  PS_C; break; // slc
-        case 0x09: vm->eps |=  PS_Z; break; // slz
-        case 0x0A: vm->eps |=  PS_N; break; // sln
-        case 0x0B: break; // nop
+        case 0x03: break; // brk todo
+        case 0x04: vm->eps &= ~PS_S; break; // cls
+        case 0x05: vm->eps &= ~PS_V; break; // clv
+        case 0x06: vm->eps &= ~PS_Z; break; // clz
+        case 0x07: vm->eps &= ~PS_C; break; // clc
+        case 0x08: vm->eps |=  PS_S; break; // sls
+        case 0x09: vm->eps |=  PS_V; break; // slv
+        case 0x0A: vm->eps |=  PS_Z; break; // slz
+        case 0x0B: vm->eps |=  PS_C; break; // slc
         case 0x0C: break; // nop
         case 0x0D: break; // nop
         case 0x0E: break; // nop

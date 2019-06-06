@@ -3,6 +3,16 @@ eax    ebx    ecx    edx    ebp    esp    eps    epc
  ax     bx
  ah al  bh bl
 
+eps:
+31 30 ... 3  2  1  0
+S  V      B  I  Z  C
+S - sign flag
+V - overflow flag
+B - software interrupt
+I - hardware interrupt
+Z - zero flag
+C - carry flag
+
 1byte instruction:
 opcode
 
@@ -59,19 +69,19 @@ mov [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh] [imm8/imm16/imm32]
 mov [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh] [eax/ebx/ecx/edx/ebp/esp/eps/ax/bx/al/ah/bl/bh]
 
 all opcodes:
-nop hlt int nop
+nop hlt int brk
        (0000 00 00)
        (0000 00 01)
        (0000 00 10)
        (0000 00 11)
 
-clc clz cln nop
+cls clv clz clc
        (0000 01 00)
        (0000 01 01)
        (0000 01 10)
        (0000 01 11)
 
-slc slz sln nop
+sls slv slz slc
        (0000 10 00)
        (0000 10 01)
        (0000 10 10)
@@ -84,7 +94,7 @@ sub    (0001 10 xx)
 sbb    (0001 11 xx)
 umul imul udiv idiv fadd fsub fmul fdiv and or not xor shl shr rol ror
 push pop jmp jz jnz jg jge jl jle jc jnc
-iext uext itof ftoi
+iext itof ftoi
 lfadd lfsub lfmul lfdiv itolf lftoi ftolf lftof
 
 
