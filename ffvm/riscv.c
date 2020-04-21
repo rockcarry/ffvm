@@ -185,7 +185,7 @@ void riscv_run(RISCV *riscv)
             riscv->x[inst_rd] = riscv->x[inst_rs1] + signed_extend(inst_imm12i, 12);
             break;
         case 0x2: // slti
-            riscv->x[inst_rd] = (int32_t)riscv->x[inst_rs1] < (int32_t)inst_imm12i;
+            riscv->x[inst_rd] = (int32_t)riscv->x[inst_rs1] < signed_extend(inst_imm12i, 12);
             break;
         case 0x3: // sltiu
             riscv->x[inst_rd] = riscv->x[inst_rs1] < inst_imm12i;
