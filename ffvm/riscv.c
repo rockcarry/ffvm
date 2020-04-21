@@ -16,7 +16,7 @@ typedef char                int8_t;
 typedef struct {
     uint32_t x[32];
     uint32_t pc;
-    #define MAX_MEM_SIZE (1024 * 1024)
+    #define MAX_MEM_SIZE (8 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
 } RISCV;
 
@@ -84,20 +84,20 @@ static int32_t signed_extend(uint32_t a, int size)
 
 void riscv_run(RISCV *riscv)
 {
-    uint32_t instruction = riscv_memr32(riscv, riscv->pc);
-    uint32_t inst_opcode = (instruction >> 0) & 0x7f;
-    uint32_t inst_rd     = (instruction >> 7) & 0x1f;
-    uint32_t inst_funct3 = (instruction >>12) & 0x07;
-    uint32_t inst_rs1    = (instruction >>15) & 0x1f;
-    uint32_t inst_rs2    = (instruction >>20) & 0x1f;
-    uint32_t inst_funct7 = (instruction >>25) & 0x7f;
-    uint32_t inst_imm12i = (instruction >>20) & 0xfff;
-    uint32_t inst_imm12s =((instruction >>20) & (0x7f << 5)) | ((instruction >> 7) & 0x1f);
-    uint32_t inst_imm13b =((instruction >>19) & (0x1  <<12)) | ((instruction << 4) & (0x1 << 11))
-                         |((instruction >>20) & (0x3f << 5)) | ((instruction >> 7) & (0xf <<  1));
-    uint32_t inst_imm20u = instruction & (0xfffff << 12);
-    uint32_t inst_imm21j =((instruction >> 11) & (1 << 20)) | (instruction & (0xff << 12))
-                         |((instruction >> 9) & (1 << 11)) | ((instruction >> 20) & (0x3ff << 1));
+    const uint32_t instruction = riscv_memr32(riscv, riscv->pc);
+    const uint32_t inst_opcode = (instruction >> 0) & 0x7f;
+    const uint32_t inst_rd     = (instruction >> 7) & 0x1f;
+    const uint32_t inst_funct3 = (instruction >>12) & 0x07;
+    const uint32_t inst_rs1    = (instruction >>15) & 0x1f;
+    const uint32_t inst_rs2    = (instruction >>20) & 0x1f;
+    const uint32_t inst_funct7 = (instruction >>25) & 0x7f;
+    const uint32_t inst_imm12i = (instruction >>20) & 0xfff;
+    const uint32_t inst_imm12s =((instruction >>20) & (0x7f << 5)) | ((instruction >> 7) & 0x1f);
+    const uint32_t inst_imm13b =((instruction >>19) & (0x1  <<12)) | ((instruction << 4) & (0x1 << 11))
+                               |((instruction >>20) & (0x3f << 5)) | ((instruction >> 7) & (0xf <<  1));
+    const uint32_t inst_imm20u = instruction & (0xfffff << 12);
+    const uint32_t inst_imm21j =((instruction >> 11) & (1 << 20)) | (instruction & (0xff << 12))
+                               |((instruction >> 9) & (1 << 11)) | ((instruction >> 20) & (0x3ff << 1));
     uint32_t bflag = 0, maddr;
     int64_t  mult64res;
 
@@ -169,13 +169,13 @@ void riscv_run(RISCV *riscv)
         maddr = riscv->x[inst_rs1] + signed_extend(inst_imm12s, 12);
         switch (inst_funct3) {
         case 0x0: // sb
-            riscv_memw8(riscv, maddr, (uint8_t)riscv->x[inst_rs1]);
+            riscv_memw8(riscv, maddr, (uint8_t)riscv->x[inst_rs2]);
             break;
         case 0x1: // sh
-            riscv_memw16(riscv, maddr, (uint16_t)riscv->x[inst_rs1]);
+            riscv_memw16(riscv, maddr, (uint16_t)riscv->x[inst_rs2]);
             break;
         case 0x2: // sw
-            riscv_memw32(riscv, maddr, riscv->x[inst_rs1]);
+            riscv_memw32(riscv, maddr, riscv->x[inst_rs2]);
             break;
         }
         break;
@@ -253,7 +253,7 @@ void riscv_run(RISCV *riscv)
                 riscv->x[inst_rd] = (uint32_t)((int32_t)riscv->x[inst_rs1] * (int32_t)riscv->x[inst_rs2]);
                 break;
             case 0x1: // mulh
-                mult64res = (int32_t)riscv->x[inst_rs1] * (int32_t)riscv->x[inst_rs2];
+                mult64res = (int64_t)riscv->x[inst_rs1] * (int32_t)riscv->x[inst_rs2];
                 riscv->x[inst_rd] = (uint32_t)(mult64res >> 32);
                 break;
             case 0x2: // mulhsu
@@ -318,7 +318,7 @@ int main(int argc, char *argv[])
         }
         sleep_tick = next_tick - get_tick_count();
         if (sleep_tick > 0) usleep(sleep_tick * 1000);
-        printf("sleep_tick: %d\n", sleep_tick);
+//      printf("sleep_tick: %d\n", sleep_tick);
     }
 
     free(riscv);
