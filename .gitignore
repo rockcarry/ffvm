@@ -1,0 +1,11 @@
+!.gitignore
+
+*.ncb
+ffvm.vcproj.*
+
+/release
+/debug
+
+Debug/
+Release/
+
