@@ -80,10 +80,7 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 
 static int32_t signed_extend(uint32_t a, int size)
 {
-    if (a & (1 << (size - 1))) {
-        a |= ~((1 << size) - 1);
-    }
-    return a;
+    return (a & (1 << (size - 1))) ? (a | ~((1 << size) - 1)) : a;
 }
 
 void riscv_run(RISCV *riscv)
