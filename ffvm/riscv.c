@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <conio.h>
 
 typedef unsigned long long uint64_t;
 typedef long long           int64_t;
@@ -18,6 +19,9 @@ typedef struct {
     uint32_t pc;
     #define MAX_MEM_SIZE (8 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
+    uint32_t heap;
+    #define TS_EXIT (1 << 0)
+    uint32_t status;
 } RISCV;
 
 static uint8_t riscv_memr8(RISCV *riscv, uint32_t addr)
@@ -81,6 +85,14 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 static int32_t signed_extend(uint32_t a, int size)
 {
     return (a & (1 << (size - 1))) ? (a | ~((1 << size) - 1)) : a;
+}
+
+static uint32_t handle_ecall(RISCV *riscv)
+{
+    switch (riscv->x[17]) {
+    case 93: riscv->status |= TS_EXIT; return 0; //sys_exit
+    default: return 0;
+    }
 }
 
 void riscv_run(RISCV *riscv)
@@ -226,6 +238,12 @@ void riscv_run(RISCV *riscv)
             }
         }
         break;
+    case 0x73:
+        if (instruction & (1 << 20)) { // ebreak;
+        } else { // ecall
+            riscv->x[10] = handle_ecall(riscv);
+        }
+        break;
     }
     riscv->x[0]= 0;
     riscv->pc += bflag ? 0 : 4;
@@ -257,7 +275,7 @@ int main(int argc, char *argv[])
         fclose(fp);
     }
 
-    while (1) {
+    while (!(riscv->status & (TS_EXIT))) {
         if (!next_tick) next_tick = get_tick_count();
         next_tick += 1000 / RISCV_FRAMERATE;
         for (i=0; i<RISCV_CPU_FREQ/RISCV_FRAMERATE; i++) {
@@ -269,5 +287,6 @@ int main(int argc, char *argv[])
     }
 
     free(riscv);
+    getch();
     return 0;
 }
