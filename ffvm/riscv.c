@@ -17,6 +17,8 @@ typedef char                int8_t;
 typedef struct {
     uint32_t x[32];
     uint32_t pc;
+    uint64_t f[32];
+    uint32_t fcsr;
     #define MAX_MEM_SIZE (8 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
     uint32_t heap;
@@ -95,9 +97,12 @@ static uint32_t handle_ecall(RISCV *riscv)
     }
 }
 
-void riscv_run(RISCV *riscv)
+static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
 {
-    const uint32_t instruction = riscv_memr32(riscv, riscv->pc);
+}
+
+static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
+{
     const uint32_t inst_opcode = (instruction >> 0) & 0x7f;
     const uint32_t inst_rd     = (instruction >> 7) & 0x1f;
     const uint32_t inst_funct3 = (instruction >>12) & 0x07;
@@ -115,12 +120,8 @@ void riscv_run(RISCV *riscv)
     int64_t  mult64res;
 
     switch (inst_opcode) {
-    case 0x37: // u-type lui
-        riscv->x[inst_rd] = inst_imm20u;
-        break;
-    case 0x17: // u-type auipc
-        riscv->x[inst_rd] = riscv->pc + (int32_t)inst_imm20u;
-        break;
+    case 0x37: riscv->x[inst_rd] = inst_imm20u; break; // u-type lui
+    case 0x17: riscv->x[inst_rd] = riscv->pc + (int32_t)inst_imm20u; break; // u-type auipc
     case 0x6f: // j-type jal
         riscv->x[inst_rd] = riscv->pc + 4;
         riscv->pc += signed_extend(inst_imm21j, 21);
@@ -245,8 +246,18 @@ void riscv_run(RISCV *riscv)
         }
         break;
     }
-    riscv->x[0]= 0;
     riscv->pc += bflag ? 0 : 4;
+}
+
+void riscv_run(RISCV *riscv)
+{
+    const uint32_t instruction = riscv_memr32(riscv, riscv->pc);
+    if ((instruction & 0x3) != 0x3) {
+        riscv_execute_rv16(riscv, (uint16_t)instruction);
+    } else {
+        riscv_execute_rv32(riscv, (uint32_t)instruction);
+    }
+    riscv->x[0] = 0;
 }
 
 #define RISCV_CPU_FREQ  (1*1000*1000)
