@@ -36,7 +36,7 @@ static void riscv_memw8(RISCV *riscv, uint32_t addr, uint8_t data)
     *(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
 }
 
-static uint16_t riscv_memr16(RISCV *riscv, uint16_t addr)
+static uint16_t riscv_memr16(RISCV *riscv, uint32_t addr)
 {
     if ((addr & 0x1) == 0) {
         return *(uint16_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
