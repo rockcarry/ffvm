@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <conio.h>
 
+#ifdef WIN32
+#pragma warning(disable:4996) // disable warnings
+#endif
+
 typedef unsigned long long uint64_t;
 typedef long long           int64_t;
 typedef unsigned           uint32_t;
