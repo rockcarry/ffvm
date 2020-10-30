@@ -107,6 +107,135 @@ static uint32_t handle_ecall(RISCV *riscv)
 
 static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
 {
+    const uint16_t inst_opcode = (instruction >> 0) & 0x3;
+    const uint16_t inst_rd     = (instruction >> 7) & 0x1f;
+    const uint16_t inst_rs1    = (instruction >> 7) & 0x1f;
+    const uint16_t inst_rs2    = (instruction >> 2) & 0x1f;
+    const uint16_t inst_rs1s   = (instruction >> 7) & 0x7;
+    const uint16_t inst_rs2s   = (instruction >> 2) & 0x7;
+    const uint16_t inst_rds    = (instruction >> 2) & 0x7;
+    const uint16_t inst_imm6   =((instruction >> 2) & 0x1f) | ((instruction >> 7) & (1 << 5));
+    const uint16_t inst_imm7   =((instruction >> 4) & (1 << 2)) | ((instruction >> 7) & (0x7 << 3)) | ((instruction << 1) & (1 << 6));
+    const uint16_t inst_imm8   =((instruction >> 7) & (0x7 << 3)) | ((instruction << 1) & (0x3 << 6));
+    const uint16_t inst_imm9   =((instruction >> 2) & (0x3 << 3)) | ((instruction >> 7) & (1 << 5)) | ((instruction << 4) & (0x7 << 6));
+    const uint16_t inst_imm10  =((instruction >> 4) & (1 << 2)) | ((instruction >> 2) & (1 << 3)) | ((instruction >> 7) & (0x3 << 4)) | ((instruction >> 1) & (0x7 << 6));
+    const uint16_t inst_imm12  =((instruction >> 2) & (0x007 << 1)) | ((instruction >> 7) & (1 << 4)) | ((instruction << 3) & (1 << 5 ))
+                               |((instruction >> 1) & (0x80d << 6)) | ((instruction << 1) & (1 << 7)) | ((instruction << 2) & (1 << 10));
+    const uint16_t inst_imm18  =((instruction << 5) & (1 << 17)) | ((instruction << 10) & (0x1f << 12));
+    const uint16_t inst_funct2 = (instruction >>10) & 0x3;
+    const uint16_t inst_funct3 = (instruction >>13) & 0x7;
+    uint32_t bflag = 0, temp;
+    switch (inst_opcode) {
+    case 0:
+        switch (inst_funct3) {
+        case 0: riscv->x[8 + inst_rds] = riscv->x[2] + inst_imm10; break; // c.addi4spn
+        case 1: // c.fld
+            riscv->f[8 + inst_rds] = (uint64_t)riscv_memr32(riscv, riscv->x[8 + inst_rs1s] + inst_imm8 + 0) << 0 ;
+            riscv->f[8 + inst_rds]|= (uint64_t)riscv_memr32(riscv, riscv->x[8 + inst_rs1s] + inst_imm8 + 4) << 32;
+            break;
+        case 2: riscv->x[8 + inst_rds] = riscv_memr32(riscv, riscv->x[8 + inst_rs1s] + inst_imm7); break; // c.lw
+        case 3: riscv->f[8 + inst_rds] = riscv_memr32(riscv, riscv->x[8 + inst_rs1s] + inst_imm7); break; // c.flw
+        case 5: // c.fsd
+            riscv_memw32(riscv, riscv->x[8 + inst_rs1s] + inst_imm8 + 0, (uint32_t)(riscv->f[8 + inst_rs2s] >> 0 ));
+            riscv_memw32(riscv, riscv->x[8 + inst_rs1s] + inst_imm8 + 4, (uint32_t)(riscv->f[8 + inst_rs2s] >> 32));
+            break;
+        case 6: riscv_memw32(riscv, riscv->x[8 + inst_rs1s] + inst_imm7, riscv->x[8 + inst_rs2s]); break; // c.sw
+        case 7: riscv_memw32(riscv, riscv->x[8 + inst_rs1s] + inst_imm7, (uint32_t)riscv->f[8 + inst_rs2s]); break; // c.fsw
+        }
+        break;
+    case 1:
+        switch (inst_funct3) {
+        case 0: riscv->x[inst_rd] += signed_extend(inst_imm6, 6); break; // c.addi
+        case 1: // c.jal
+            riscv->x[1] = riscv->pc + 2;
+            riscv->pc  += signed_extend(inst_imm12, 12);
+            bflag = 1;
+            break;
+        case 2: riscv->x[inst_rd] = signed_extend(inst_imm6, 6); break; // c.li
+        case 3:
+            if (inst_rd == 2) { // c.addi16sp
+                temp = ((instruction >> 2) & (1 << 4)) | ((instruction << 3) & (1 << 5)) | ((instruction << 1) & (1 << 6))
+                     | ((instruction << 4) & (0x3 << 7)) | ((instruction >> 3) & (1 << 9));
+                riscv->x[inst_rd] += signed_extend(temp, 10);
+            } else { // c.lui
+                riscv->x[inst_rd]  = signed_extend(inst_imm18, 18);
+            }
+            break;
+        case 4:
+            switch (inst_funct2) {
+            case 0: riscv->x[8 + inst_rds] = (uint32_t)riscv->x[8 + inst_rds] >> inst_imm6; break; // c.srli
+            case 1: riscv->x[8 + inst_rds] = (int32_t )riscv->x[8 + inst_rds] >> inst_imm6; break; // c.srai
+            case 2: riscv->x[8 + inst_rds]+= signed_extend(inst_imm6, 6); break; // c.andi
+            case 3:
+                switch ((instruction >> 5) & 3) {
+                case 0: riscv->x[8 + inst_rds] -= riscv->x[8 + inst_rs2s]; break; // c.sub
+                case 1: riscv->x[8 + inst_rds] ^= riscv->x[8 + inst_rs2s]; break; // c.xor
+                case 2: riscv->x[8 + inst_rds] |= riscv->x[8 + inst_rs2s]; break; // c.or
+                case 3: riscv->x[8 + inst_rds] &= riscv->x[8 + inst_rs2s]; break; // c.and
+                }
+                break;
+            }
+        case 5: riscv->pc += signed_extend(inst_imm12, 12); bflag = 1; break; // c.j
+        case 6: // c.beqz
+        case 7: // c.bnez
+            if (inst_funct3 == 6 && riscv->x[8 + inst_rs1s] == 0 || inst_funct3 == 7 && riscv->x[8 + inst_rs1s] != 0) {
+                temp = ((instruction >> 2) & (0x3 << 1)) | ((instruction >> 7) & (0x3 << 3)) | ((instruction << 3) & (1 << 5))
+                     | ((instruction << 1) & (0x3 << 6)) | ((instruction > 4) & (1 << 8));
+                riscv->pc += signed_extend(temp, 9);
+                bflag = 1;
+            }
+            break;
+        }
+        break;
+    case 2:
+        switch (inst_funct3) {
+        case 0: riscv->x[inst_rd] <<= inst_imm6; break; // c.slli
+        case 1: // c.fldsp
+            riscv->f[inst_rd]  = (uint64_t)riscv_memr32(riscv, riscv->x[2] + inst_imm9 + 0) << 0 ;
+            riscv->f[inst_rd] |= (uint64_t)riscv_memr32(riscv, riscv->x[2] + inst_imm9 + 4) << 32;
+            break;
+        case 2: // c.lwsp
+        case 3: // c.flwsp
+            temp = ((instruction >> 2) & (0x7 << 2)) | ((instruction >> 7) & (1 << 5)) | ((instruction << 4) & (0x3 << 6));
+            if (inst_funct3 == 2) riscv->x[inst_rd] = riscv_memr32(riscv, riscv->x[2] + temp); // c.lwsp
+            else                  riscv->f[inst_rd] = riscv_memr32(riscv, riscv->x[2] + temp); // c.flwsp
+            break;
+        case 4:
+            if ((instruction & (1 << 12)) == 0) {
+                if (inst_rs2 == 0) { // c.jr
+                    riscv->pc = riscv->x[inst_rs1]; bflag = 1;
+                } else { // c.mv
+                    riscv->x[inst_rd] = riscv->x[inst_rs2];
+                }
+            } else {
+                if (inst_rs1 == 0 && inst_rs2 == 0) { // c.ebreak;
+                } else if (inst_rs2 == 0) { // c.jalr
+                    temp        = riscv->pc + 2;
+                    riscv->pc   = riscv->x[inst_rs1];
+                    riscv->x[1] = temp;
+                    bflag       = 1;
+                } else { // c.add
+                    riscv->x[inst_rd] += riscv->x[inst_rs2];
+                }
+            }
+            break;
+        case 5: // c.fsdsp
+            temp = ((instruction >> 7) & (0x7 << 3)) | ((instruction >> 1) & (0x7 << 6));
+            riscv_memw32(riscv, riscv->x[2] + temp + 0, (uint32_t)(riscv->f[inst_rs2] >> 0 ));
+            riscv_memw32(riscv, riscv->x[2] + temp + 4, (uint32_t)(riscv->f[inst_rs2] >> 32));
+            break;
+        case 6: // c.swsp
+            temp = ((instruction >> 7) & (0x7 << 3)) | ((instruction >> 1) & (0x7 << 6));
+            riscv_memw32(riscv, riscv->x[2] + temp, (uint32_t)riscv->x[inst_rs2]);
+            break;
+        case 7: // c.fswsp
+            temp = ((instruction >> 7) & (0x7 << 3)) | ((instruction >> 1) & (0x7 << 6));
+            riscv_memw32(riscv, riscv->x[2] + temp, (uint32_t)riscv->f[inst_rs2]);
+            break;
+        }
+        break;
+    }
+    riscv->pc += bflag ? 0 : 2;
 }
 
 static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
