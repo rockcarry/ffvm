@@ -78,6 +78,7 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
     switch (addr) {
+    case 0xF0000000: return;
     case 0xF0000004: fputc(data, stdout); return;
     case 0xF0000008: fputc(data, stderr); return;
     }
