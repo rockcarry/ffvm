@@ -62,6 +62,9 @@ static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
 
 static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
+    switch (addr) {
+    case 0xF0000000: return fgetc(stdin);
+    }
     if ((addr & 0x3) == 0) {
         return *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
     } else {
@@ -74,9 +77,9 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 
 static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
-    if (addr == 0x8000) {
-        putchar((int)data);
-        return;
+    switch (addr) {
+    case 0xF0000004: fputc(data, stdout); return;
+    case 0xF0000008: fputc(data, stderr); return;
     }
     if ((addr & 0x3) == 0) {
         *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
