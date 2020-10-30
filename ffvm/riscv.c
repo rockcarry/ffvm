@@ -123,7 +123,7 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
                                |((instruction >>20) & (0x3f << 5)) | ((instruction >> 7) & (0xf <<  1));
     const uint32_t inst_imm20u = instruction & (0xfffff << 12);
     const uint32_t inst_imm21j =((instruction >> 11) & (1 << 20)) | (instruction & (0xff << 12))
-                               |((instruction >> 9) & (1 << 11)) | ((instruction >> 20) & (0x3ff << 1));
+                               |((instruction >> 9 ) & (1 << 11)) | ((instruction >> 20) & (0x3ff << 1));
     uint32_t bflag = 0, maddr, temp;
     int64_t  mult64res;
 
