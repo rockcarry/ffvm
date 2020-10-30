@@ -23,7 +23,7 @@ typedef struct {
     uint32_t pc;
     uint64_t f[32];
     uint32_t fcsr;
-    #define MAX_MEM_SIZE (8 * 1024 * 1024)
+    #define MAX_MEM_SIZE (64 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
     uint32_t heap;
     #define TS_EXIT (1 << 0)
@@ -283,10 +283,10 @@ int main(int argc, char *argv[])
         strncpy(romfile, argv[1], sizeof(romfile));
     }
 
-    riscv->pc = 0x1008c; // startup addr
+    riscv->pc = 0x80000000; // startup addr
     fp = fopen(romfile, "rb");
     if (fp) {
-        fread(riscv->mem + 0x10074, 1, sizeof(riscv->mem) - 0x10074, fp);
+        fread(riscv->mem, 1, sizeof(riscv->mem), fp);
         fclose(fp);
     }
 
