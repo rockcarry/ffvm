@@ -119,12 +119,13 @@ static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
     const uint16_t inst_imm8   =((instruction >> 7) & (0x7 << 3)) | ((instruction << 1) & (0x3 << 6));
     const uint16_t inst_imm9   =((instruction >> 2) & (0x3 << 3)) | ((instruction >> 7) & (1 << 5)) | ((instruction << 4) & (0x7 << 6));
     const uint16_t inst_imm10  =((instruction >> 4) & (1 << 2)) | ((instruction >> 2) & (1 << 3)) | ((instruction >> 7) & (0x3 << 4)) | ((instruction >> 1) & (0x7 << 6));
-    const uint16_t inst_imm12  =((instruction >> 2) & (0x007 << 1)) | ((instruction >> 7) & (1 << 4)) | ((instruction << 3) & (1 << 5 ))
-                               |((instruction >> 1) & (0x80d << 6)) | ((instruction << 1) & (1 << 7)) | ((instruction << 2) & (1 << 10));
+    const uint16_t inst_imm12  =((instruction >> 2) & (0x7 << 1)) | ((instruction >> 7) & (1 << 4)) | ((instruction << 3) & (1 << 5))
+                               |((instruction >> 1) & (0x2d << 6)) | ((instruction << 1) & (1 << 7)) | ((instruction << 2) & (1 << 10));
     const uint16_t inst_imm18  =((instruction << 5) & (1 << 17)) | ((instruction << 10) & (0x1f << 12));
     const uint16_t inst_funct2 = (instruction >>10) & 0x3;
     const uint16_t inst_funct3 = (instruction >>13) & 0x7;
     uint32_t bflag = 0, temp;
+
     switch (inst_opcode) {
     case 0:
         switch (inst_funct3) {
@@ -163,24 +164,25 @@ static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
             break;
         case 4:
             switch (inst_funct2) {
-            case 0: riscv->x[8 + inst_rds] = (uint32_t)riscv->x[8 + inst_rds] >> inst_imm6; break; // c.srli
-            case 1: riscv->x[8 + inst_rds] = (int32_t )riscv->x[8 + inst_rds] >> inst_imm6; break; // c.srai
-            case 2: riscv->x[8 + inst_rds]+= signed_extend(inst_imm6, 6); break; // c.andi
+            case 0: riscv->x[8 + inst_rs1s] = (uint32_t)riscv->x[8 + inst_rs1s] >> inst_imm6; break; // c.srli
+            case 1: riscv->x[8 + inst_rs1s] = (int32_t )riscv->x[8 + inst_rs1s] >> inst_imm6; break; // c.srai
+            case 2: riscv->x[8 + inst_rs1s]+= signed_extend(inst_imm6, 6); break; // c.andi
             case 3:
                 switch ((instruction >> 5) & 3) {
-                case 0: riscv->x[8 + inst_rds] -= riscv->x[8 + inst_rs2s]; break; // c.sub
-                case 1: riscv->x[8 + inst_rds] ^= riscv->x[8 + inst_rs2s]; break; // c.xor
-                case 2: riscv->x[8 + inst_rds] |= riscv->x[8 + inst_rs2s]; break; // c.or
-                case 3: riscv->x[8 + inst_rds] &= riscv->x[8 + inst_rs2s]; break; // c.and
+                case 0: riscv->x[8 + inst_rs1s] -= riscv->x[8 + inst_rs2s]; break; // c.sub
+                case 1: riscv->x[8 + inst_rs1s] ^= riscv->x[8 + inst_rs2s]; break; // c.xor
+                case 2: riscv->x[8 + inst_rs1s] |= riscv->x[8 + inst_rs2s]; break; // c.or
+                case 3: riscv->x[8 + inst_rs1s] &= riscv->x[8 + inst_rs2s]; break; // c.and
                 }
                 break;
             }
+            break;
         case 5: riscv->pc += signed_extend(inst_imm12, 12); bflag = 1; break; // c.j
         case 6: // c.beqz
         case 7: // c.bnez
             if (inst_funct3 == 6 && riscv->x[8 + inst_rs1s] == 0 || inst_funct3 == 7 && riscv->x[8 + inst_rs1s] != 0) {
                 temp = ((instruction >> 2) & (0x3 << 1)) | ((instruction >> 7) & (0x3 << 3)) | ((instruction << 3) & (1 << 5))
-                     | ((instruction << 1) & (0x3 << 6)) | ((instruction > 4) & (1 << 8));
+                     | ((instruction << 1) & (0x3 << 6)) | ((instruction >> 4) & (1 << 8));
                 riscv->pc += signed_extend(temp, 9);
                 bflag = 1;
             }
