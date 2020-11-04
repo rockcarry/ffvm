@@ -166,7 +166,7 @@ static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
             switch (inst_funct2) {
             case 0: riscv->x[8 + inst_rs1s] = (uint32_t)riscv->x[8 + inst_rs1s] >> inst_imm6; break; // c.srli
             case 1: riscv->x[8 + inst_rs1s] = (int32_t )riscv->x[8 + inst_rs1s] >> inst_imm6; break; // c.srai
-            case 2: riscv->x[8 + inst_rs1s]+= signed_extend(inst_imm6, 6); break; // c.andi
+            case 2: riscv->x[8 + inst_rs1s]&= signed_extend(inst_imm6, 6); break; // c.andi
             case 3:
                 switch ((instruction >> 5) & 3) {
                 case 0: riscv->x[8 + inst_rs1s] -= riscv->x[8 + inst_rs2s]; break; // c.sub
@@ -227,11 +227,11 @@ static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
             riscv_memw32(riscv, riscv->x[2] + temp + 4, (uint32_t)(riscv->f[inst_rs2] >> 32));
             break;
         case 6: // c.swsp
-            temp = ((instruction >> 7) & (0x7 << 3)) | ((instruction >> 1) & (0x7 << 6));
+            temp = ((instruction >> 7) & (0xf << 2)) | ((instruction >> 1) & (0x3 << 6));
             riscv_memw32(riscv, riscv->x[2] + temp, (uint32_t)riscv->x[inst_rs2]);
             break;
         case 7: // c.fswsp
-            temp = ((instruction >> 7) & (0x7 << 3)) | ((instruction >> 1) & (0x7 << 6));
+            temp = ((instruction >> 7) & (0xf << 2)) | ((instruction >> 1) & (0x3 << 6));
             riscv_memw32(riscv, riscv->x[2] + temp, (uint32_t)riscv->f[inst_rs2]);
             break;
         }
