@@ -22,7 +22,7 @@ typedef struct {
     uint32_t pc;
     uint32_t x[32];
     uint64_t f[32];
-    uint32_t fcsr;
+    uint32_t csr[0x1000];
     uint32_t mreserved;
     #define MAX_MEM_SIZE (64 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
@@ -256,6 +256,7 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
     const uint32_t inst_imm20u = instruction & (0xfffff << 12);
     const uint32_t inst_imm21j =((instruction >> 11) & (1 << 20)) | (instruction & (0xff << 12))
                                |((instruction >> 9 ) & (1 << 11)) | ((instruction >> 20) & (0x3ff << 1));
+    const uint32_t inst_csr    = (instruction >> 20);
     uint32_t bflag = 0, maddr, temp;
     int64_t  mult64res;
 
@@ -380,9 +381,20 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
         }
         break;
     case 0x73:
-        if (instruction & (1 << 20)) { // ebreak;
-        } else { // ecall
-            riscv->x[10] = handle_ecall(riscv);
+        switch (inst_funct3) {
+        case 0:
+            if (instruction & (1 << 20)) { // ebreak;
+                // todo...
+            } else { // ecall
+                riscv->x[10] = handle_ecall(riscv);
+            }
+            break;
+        case 1: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr] = riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrw
+        case 2: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr]|= riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrs
+        case 3: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr]&=~riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrc
+        case 5: riscv->x[inst_rd] = riscv->csr[inst_csr]; riscv->csr[inst_csr] = (instruction >> 15) & 0x1f;      break; // csrrwi
+        case 6: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr]|= ((instruction >> 15) & 0x1f); riscv->x[inst_rd] = temp; break; // csrrsi
+        case 7: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr]&=~((instruction >> 15) & 0x1f); riscv->x[inst_rd] = temp; break; // csrrci
         }
         break;
     case 0x2f:
@@ -407,6 +419,13 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
             riscv->x[inst_rd] = temp;
         }
         break;
+    case 0x0f:
+        if (instruction == 0x0000100f) { // fence.i
+            // todo...
+        } else if ((instruction & 0xf00fff80) == 0) { // fence
+            // todo...
+        }
+        break;
     }
     riscv->pc += bflag ? 0 : 4;
 }
@@ -422,6 +441,17 @@ void riscv_run(RISCV *riscv)
     riscv->x[0] = 0;
 }
 
+RISCV* riscv_init(void)
+{
+    RISCV *riscv = calloc(1, sizeof(RISCV));
+    if (!riscv) return NULL;
+    riscv->csr[0x301] = (1 << 8) | (1 << 12) | (1 << 2) || (1 << 0); // misa rv32imca
+    return riscv;
+}
+
+void riscv_free(RISCV *riscv) { free(riscv); }
+
+
 #define RISCV_CPU_FREQ  (1*1000*1000)
 #define RISCV_FRAMERATE  50
 
@@ -434,7 +464,7 @@ int main(int argc, char *argv[])
     FILE     *fp    = NULL;
     int      i;
 
-    riscv = calloc(1, sizeof(RISCV));
+    riscv = riscv_init();
     if (!riscv) return 0;
 
     if (argc >= 2) {
@@ -459,7 +489,7 @@ int main(int argc, char *argv[])
 //      printf("sleep_tick: %d\n", sleep_tick);
     }
 
-    free(riscv);
+    riscv_free(riscv);
     getch();
     return 0;
 }
