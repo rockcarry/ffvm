@@ -65,7 +65,10 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
     switch (addr) {
     case 0xF0000000: return fgetc(stdin);
+    case 0xF0000004: return getch();
     }
+    if (addr > 0xF0000000) return 0;
+
     if ((addr & 0x3) == 0) {
         return *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
     } else {
@@ -79,10 +82,11 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
     switch (addr) {
-    case 0xF0000000: return;
-    case 0xF0000004: fputc(data, stdout); return;
-    case 0xF0000008: fputc(data, stderr); return;
+    case 0xF0000008: fputc(data, stdout); return;
+    case 0xF000000C: fputc(data, stderr); return;
     }
+    if (addr > 0xF0000000) return;
+
     if ((addr & 0x3) == 0) {
         *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
     } else {
@@ -454,7 +458,7 @@ void riscv_free(RISCV *riscv) { free(riscv); }
 
 int main(int argc, char *argv[])
 {
-    char romfile[MAX_PATH] = "rom.bin";
+    char romfile[MAX_PATH] = "hello.rom";
     uint32_t next_tick = 0;
     int32_t  sleep_tick= 0;
     RISCV    *riscv = NULL;
