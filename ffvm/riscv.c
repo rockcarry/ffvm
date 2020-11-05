@@ -228,12 +228,9 @@ static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
             riscv_memw32(riscv, riscv->x[2] + temp + 4, (uint32_t)(riscv->f[inst_rs2] >> 32));
             break;
         case 6: // c.swsp
-            temp = ((instruction >> 7) & (0xf << 2)) | ((instruction >> 1) & (0x3 << 6));
-            riscv_memw32(riscv, riscv->x[2] + temp, (uint32_t)riscv->x[inst_rs2]);
-            break;
         case 7: // c.fswsp
             temp = ((instruction >> 7) & (0xf << 2)) | ((instruction >> 1) & (0x3 << 6));
-            riscv_memw32(riscv, riscv->x[2] + temp, (uint32_t)riscv->f[inst_rs2]);
+            riscv_memw32(riscv, riscv->x[2] + temp, inst_funct3 == 6 ? riscv->x[inst_rs2] : (uint32_t)riscv->f[inst_rs2]);
             break;
         }
         break;
