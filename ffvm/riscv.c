@@ -491,6 +491,5 @@ int main(int argc, char *argv[])
     }
 
     riscv_free(riscv);
-    getch();
     return 0;
 }
