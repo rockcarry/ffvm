@@ -19,10 +19,11 @@ typedef char                int8_t;
 #define usleep(t)      Sleep((t)/1000)
 
 typedef struct {
-    uint32_t x[32];
     uint32_t pc;
+    uint32_t x[32];
     uint64_t f[32];
     uint32_t fcsr;
+    uint32_t mreserved;
     #define MAX_MEM_SIZE (64 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
     uint32_t heap;
@@ -382,6 +383,28 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
         if (instruction & (1 << 20)) { // ebreak;
         } else { // ecall
             riscv->x[10] = handle_ecall(riscv);
+        }
+        break;
+    case 0x2f:
+        if (inst_funct3 == 0x2) {
+            temp = riscv_memr32(riscv, riscv->x[inst_rs1]);
+            switch (instruction >> 27) {
+            case 0x02: riscv->mreserved = riscv->x[inst_rs1]; break; // lr.w
+            case 0x03: // sc.w
+                if (riscv->mreserved == riscv->x[inst_rs1]) riscv_memw32(riscv, riscv->x[inst_rs1], riscv->x[inst_rs2]);
+                temp = !(riscv->mreserved == riscv->x[inst_rs1]);
+                break;
+            case 0x01: riscv_memw32(riscv, riscv->x[inst_rs1], riscv->x[inst_rs2]); break; // amoswap.w
+            case 0x00: riscv_memw32(riscv, riscv->x[inst_rs1], temp + riscv->x[inst_rs2]); break; // amoadd.w
+            case 0x04: riscv_memw32(riscv, riscv->x[inst_rs1], temp ^ riscv->x[inst_rs2]); break; // amoxor.w
+            case 0x0c: riscv_memw32(riscv, riscv->x[inst_rs1], temp & riscv->x[inst_rs2]); break; // amoand.w
+            case 0x08: riscv_memw32(riscv, riscv->x[inst_rs1], temp | riscv->x[inst_rs2]); break; // amoor.w
+            case 0x10: riscv_memw32(riscv, riscv->x[inst_rs1], (int32_t)temp < (int32_t)riscv->x[inst_rs2] ? temp : riscv->x[inst_rs2]); break; // amomin.w
+            case 0x14: riscv_memw32(riscv, riscv->x[inst_rs1], (int32_t)temp > (int32_t)riscv->x[inst_rs2] ? temp : riscv->x[inst_rs2]); break; // amomax.w
+            case 0x18: riscv_memw32(riscv, riscv->x[inst_rs1], temp < riscv->x[inst_rs2] ? temp : riscv->x[inst_rs2]); break; // amominu.w
+            case 0x1c: riscv_memw32(riscv, riscv->x[inst_rs1], temp > riscv->x[inst_rs2] ? temp : riscv->x[inst_rs2]); break; // amomaxu.w
+            }
+            riscv->x[inst_rd] = temp;
         }
         break;
     }
