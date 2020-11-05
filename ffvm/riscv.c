@@ -442,11 +442,17 @@ void riscv_run(RISCV *riscv)
     riscv->x[0] = 0;
 }
 
-RISCV* riscv_init(void)
+RISCV* riscv_init(char *rom)
 {
+    FILE  *fp    = NULL;
     RISCV *riscv = calloc(1, sizeof(RISCV));
     if (!riscv) return NULL;
-    riscv->csr[0x301] = (1 << 8) | (1 << 12) | (1 << 2) || (1 << 0); // misa rv32imca
+    riscv->csr[0x301] = (1 << 8) | (1 << 12) | (1 << 0) | (1 << 2); // misa rv32imac
+    fp = fopen(rom, "rb");
+    if (fp) {
+        fread(riscv->mem, 1, sizeof(riscv->mem), fp);
+        fclose(fp);
+    }
     return riscv;
 }
 
@@ -458,26 +464,14 @@ void riscv_free(RISCV *riscv) { free(riscv); }
 
 int main(int argc, char *argv[])
 {
-    char romfile[MAX_PATH] = "hello.rom";
+    char romfile[MAX_PATH] = "test.rom";
     uint32_t next_tick = 0;
-    int32_t  sleep_tick= 0;
+    int32_t  sleep_tick, i;
     RISCV    *riscv = NULL;
-    FILE     *fp    = NULL;
-    int      i;
 
-    riscv = riscv_init();
+    if (argc >= 2) strncpy(romfile, argv[1], sizeof(romfile));
+    riscv = riscv_init(romfile);
     if (!riscv) return 0;
-
-    if (argc >= 2) {
-        strncpy(romfile, argv[1], sizeof(romfile));
-    }
-
-    riscv->pc = 0x80000000; // startup addr
-    fp = fopen(romfile, "rb");
-    if (fp) {
-        fread(riscv->mem, 1, sizeof(riscv->mem), fp);
-        fclose(fp);
-    }
 
     while (!(riscv->status & (TS_EXIT))) {
         if (!next_tick) next_tick = get_tick_count();
