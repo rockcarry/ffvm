@@ -5,8 +5,6 @@
 
 #ifdef WIN32
 #pragma warning(disable:4996) // disable warnings
-#endif
-
 typedef unsigned long long uint64_t;
 typedef long long           int64_t;
 typedef unsigned           uint32_t;
@@ -17,6 +15,9 @@ typedef unsigned char      uint8_t;
 typedef char                int8_t;
 #define get_tick_count GetTickCount
 #define usleep(t)      Sleep((t)/1000)
+#else
+#include <stdint.h>
+#endif
 
 typedef struct {
     uint32_t pc;
@@ -65,7 +66,8 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
     switch (addr) {
     case 0xF0000000: return fgetc(stdin);
-    case 0xF0000004: return getch();
+    case 0xF0000008: return getch();
+    case 0xF000000C: return kbhit();
     }
     if (addr >= 0xF0000000) return 0;
 
@@ -82,8 +84,8 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
     switch (addr) {
-    case 0xF0000008: fputc(data, stdout); return;
-    case 0xF000000C: fputc(data, stderr); return;
+    case 0xF0000000: fputc(data, stdout); return;
+    case 0xF0000004: fputc(data, stderr); return;
     }
     if (addr >= 0xF0000000) return;
 
