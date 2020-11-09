@@ -84,10 +84,16 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
     switch (addr) {
+        COORD coord;
     case 0xF0000000: if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
     case 0xF0000004: if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
     case 0xF0000100: usleep(data * 1000); return;
     case 0xF0000104: system("cls");       return;
+    case 0xF0000108:
+        coord.X = (data >> 0 ) & 0xFFFF;
+        coord.Y = (data >> 16) & 0xFFFF;
+        SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+        break;
     }
     if (addr >= 0xF0000000) return;
 
