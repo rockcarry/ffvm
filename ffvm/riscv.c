@@ -470,7 +470,7 @@ void riscv_free(RISCV *riscv) { free(riscv); }
 
 
 #define RISCV_CPU_FREQ  (1*1000*1000)
-#define RISCV_FRAMERATE  50
+#define RISCV_FRAMERATE  100
 
 int main(int argc, char *argv[])
 {
