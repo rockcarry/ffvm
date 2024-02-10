@@ -1,23 +1,21 @@
-#include <windows.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include <conio.h>
+#include <windows.h>
 
-#ifdef WIN32
-#pragma warning(disable:4996) // disable warnings
-typedef unsigned long long uint64_t;
-typedef long long           int64_t;
-typedef unsigned           uint32_t;
-typedef int                 int32_t;
-typedef unsigned short     uint16_t;
-typedef short               int16_t;
-typedef unsigned char      uint8_t;
-typedef char                int8_t;
 #define get_tick_count GetTickCount
-#define usleep(t)      Sleep((t)/1000)
-#else
-#include <stdint.h>
-#endif
+
+#define REG_FFVM_STDIO  0xFF000000
+#define REG_FFVM_STDERR 0xFF000004
+#define REG_FFVM_GETCH  0xFF000008
+#define REG_FFVM_KBHIT  0xFF00000C
+
+#define REG_FFVM_MSLEEP 0xFF000100
+#define REG_FFVM_CLRSCR 0xFF000104
+#define REG_FFVM_GOTOXY 0xFF000108
 
 typedef struct {
     uint32_t pc;
@@ -65,11 +63,11 @@ static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
 static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
     switch (addr) {
-    case 0xF0000000: return fgetc(stdin);
-    case 0xF0000008: return getch();
-    case 0xF000000C: return kbhit();
+    case REG_FFVM_STDIO: return fgetc(stdin);
+    case REG_FFVM_GETCH: return getch();
+    case REG_FFVM_KBHIT: return kbhit();
     }
-    if (addr >= 0xF0000000) return 0;
+    if (addr >= REG_FFVM_STDIO) return 0;
 
     if ((addr & 0x3) == 0) {
         return *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
@@ -85,17 +83,17 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
     switch (addr) {
         COORD coord;
-    case 0xF0000000: if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
-    case 0xF0000004: if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
-    case 0xF0000100: usleep(data * 1000); return;
-    case 0xF0000104: system("cls");       return;
-    case 0xF0000108:
+    case REG_FFVM_STDIO : if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
+    case REG_FFVM_STDERR: if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
+    case REG_FFVM_MSLEEP: usleep(data * 1000); return;
+    case REG_FFVM_CLRSCR: system("cls");       return;
+    case REG_FFVM_GOTOXY:
         coord.X = (data >> 0 ) & 0xFFFF;
         coord.Y = (data >> 16) & 0xFFFF;
         SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
         break;
     }
-    if (addr >= 0xF0000000) return;
+    if (addr >= REG_FFVM_STDIO) return;
 
     if ((addr & 0x3) == 0) {
         *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
@@ -115,7 +113,7 @@ static int32_t signed_extend(uint32_t a, int size)
 static uint32_t handle_ecall(RISCV *riscv)
 {
     switch (riscv->x[17]) {
-    case 93: riscv->status |= TS_EXIT; return 0; //sys_exit
+    case 93: riscv->status |= TS_EXIT; return 0; // sys_exit
     default: return 0;
     }
 }
@@ -195,7 +193,7 @@ static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
         case 5: riscv->pc += signed_extend(inst_imm12, 12); bflag = 1; break; // c.j
         case 6: // c.beqz
         case 7: // c.bnez
-            if (inst_funct3 == 6 && riscv->x[8 + inst_rs1s] == 0 || inst_funct3 == 7 && riscv->x[8 + inst_rs1s] != 0) {
+            if ((inst_funct3 == 6 && riscv->x[8 + inst_rs1s] == 0) || (inst_funct3 == 7 && riscv->x[8 + inst_rs1s] != 0)) {
                 temp = ((instruction >> 2) & (0x3 << 1)) | ((instruction >> 7) & (0x3 << 3)) | ((instruction << 3) & (1 << 5))
                      | ((instruction << 1) & (0x3 << 6)) | ((instruction >> 4) & (1 << 8));
                 riscv->pc += signed_extend(temp, 9);
@@ -468,8 +466,7 @@ RISCV* riscv_init(char *rom)
 
 void riscv_free(RISCV *riscv) { free(riscv); }
 
-
-#define RISCV_CPU_FREQ  (1*1000*1000)
+#define RISCV_CPU_FREQ  (100*1000*1000)
 #define RISCV_FRAMERATE  100
 
 int main(int argc, char *argv[])
@@ -486,7 +483,7 @@ int main(int argc, char *argv[])
     while (!(riscv->status & (TS_EXIT))) {
         if (!next_tick) next_tick = get_tick_count();
         next_tick += 1000 / RISCV_FRAMERATE;
-        for (i=0; i<RISCV_CPU_FREQ/RISCV_FRAMERATE; i++) {
+        for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) {
             riscv_run(riscv);
         }
         sleep_tick = next_tick - get_tick_count();

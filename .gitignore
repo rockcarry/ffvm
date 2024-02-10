@@ -1,12 +1,4 @@
 !.gitignore
 
-*.suo
-*.ncb
-ffvm.vcproj.*
-
-/release
-/debug
-
-Debug/
-Release/
+/ffvm.exe
 
