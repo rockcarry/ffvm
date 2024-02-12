@@ -6,20 +6,29 @@
 #include <unistd.h>
 #include <conio.h>
 #include <windows.h>
+#include <libavdev/adev.h>
+#include <libavdev/vdev.h>
+#include <libavdev/idev.h>
 
 #define get_tick_count GetTickCount
 
-#define REG_FFVM_STDIO    0xFF000000
-#define REG_FFVM_STDERR   0xFF000004
-#define REG_FFVM_GETCH    0xFF000008
-#define REG_FFVM_KBHIT    0xFF00000C
+#define REG_FFVM_STDIO            0xFF000000
+#define REG_FFVM_STDERR           0xFF000004
+#define REG_FFVM_GETCH            0xFF000008
+#define REG_FFVM_KBHIT            0xFF00000C
 
-#define REG_FFVM_MSLEEP   0xFF000100
-#define REG_FFVM_CLRSCR   0xFF000104
-#define REG_FFVM_GOTOXY   0xFF000108
+#define REG_FFVM_MSLEEP           0xFF000100
+#define REG_FFVM_CLRSCR           0xFF000104
+#define REG_FFVM_GOTOXY           0xFF000108
 
-#define REG_FFVM_TICKTIME 0xFF000400
-#define REG_FFVM_REALTIME 0xFF000404
+#define REG_FFVM_DISP_WH          0xFF000200
+#define REG_FFVM_DISP_ADDR        0xFF000204
+#define REG_FFVM_DISP_REFRESH_XY  0xFF000208
+#define REG_FFVM_DISP_REFRESH_WH  0xFF00020C
+#define REG_FFVM_DISP_REFRESH_DIV 0xFF000210
+
+#define REG_FFVM_TICKTIME         0xFF000400
+#define REG_FFVM_REALTIME         0xFF000404
 
 typedef struct {
     uint32_t pc;
@@ -29,11 +38,54 @@ typedef struct {
     uint32_t mreserved;
     #define MAX_MEM_SIZE (64 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
+
     #define FLAG_EXIT (1 << 0)
     uint32_t flags;
     uint32_t ffvm_start_tick;
     uint32_t ffvm_realtime_diff;
+    void    *vdev;
+    uint32_t disp_wh;
+    uint32_t disp_addr;
+    uint32_t disp_refresh_xy;
+    uint32_t disp_refresh_wh;
+    uint32_t disp_refresh_div;
+    uint32_t disp_refresh_cnt;
 } RISCV;
+
+static void disp_init(RISCV *riscv, int wh)
+{
+    if (riscv->disp_wh != wh) {
+        riscv->disp_wh  = wh;
+        vdev_exit(riscv->vdev, 1);
+        riscv->vdev = vdev_init((wh >> 0) & 0xFFFF, (wh >> 16) & 0xFFFF, NULL, NULL, NULL);
+    }
+}
+
+static void disp_refresh(RISCV *riscv)
+{
+    int refresh = 0, x, y, w, h, i, j;
+    if (riscv->disp_refresh_div == 0 && riscv->disp_refresh_wh) refresh = 1;
+    if (riscv->disp_refresh_div) {
+        if (++riscv->disp_refresh_cnt >= riscv->disp_refresh_div) riscv->disp_refresh_cnt = 0, refresh = 1;
+    }
+    if (refresh) {
+        x = (riscv->disp_refresh_xy >> 0) & 0xFFFF;
+        y = (riscv->disp_refresh_xy >>16) & 0xFFFF;
+        w = (riscv->disp_refresh_wh >> 0) & 0xFFFF;
+        h = (riscv->disp_refresh_wh >>16) & 0xFFFF;
+        BMP *bmp = vdev_lock(riscv->vdev);
+        if (bmp) {
+            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr) + y * w + x;
+            uint32_t *dst = (uint32_t*)bmp->pdata + y * w + x;
+            for (i = 0; i < h; i++) {
+                for (j = 0; j < w; j++) dst[j] = src[j];
+                src += w, dst += w;
+            }
+            vdev_unlock(riscv->vdev);
+        }
+        if (riscv->disp_refresh_div == 0) riscv->disp_refresh_wh = 0;
+    }
+}
 
 static uint8_t riscv_memr8(RISCV *riscv, uint32_t addr)
 {
@@ -68,11 +120,16 @@ static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
 static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
     switch (addr) {
-    case REG_FFVM_STDIO   : return fgetc(stdin);
-    case REG_FFVM_GETCH   : return getch();
-    case REG_FFVM_KBHIT   : return kbhit();
-    case REG_FFVM_TICKTIME: return get_tick_count() - riscv->ffvm_start_tick;
-    case REG_FFVM_REALTIME: return time(NULL) - riscv->ffvm_realtime_diff;
+    case REG_FFVM_STDIO           : return fgetc(stdin);
+    case REG_FFVM_GETCH           : return getch();
+    case REG_FFVM_KBHIT           : return kbhit();
+    case REG_FFVM_DISP_WH         : return riscv->disp_wh;
+    case REG_FFVM_DISP_ADDR       : return riscv->disp_addr;
+    case REG_FFVM_DISP_REFRESH_XY : return riscv->disp_refresh_xy;
+    case REG_FFVM_DISP_REFRESH_WH : return riscv->disp_refresh_wh;
+    case REG_FFVM_DISP_REFRESH_DIV: return riscv->disp_refresh_div;
+    case REG_FFVM_TICKTIME        : return get_tick_count() - riscv->ffvm_start_tick;
+    case REG_FFVM_REALTIME        : return time(NULL) - riscv->ffvm_realtime_diff;
     }
     if (addr >= REG_FFVM_STDIO) return 0;
 
@@ -88,8 +145,8 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 
 static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
+    COORD coord;
     switch (addr) {
-        COORD coord;
     case REG_FFVM_STDIO : if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
     case REG_FFVM_STDERR: if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
     case REG_FFVM_MSLEEP: usleep(data * 1000); return;
@@ -99,6 +156,13 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
         coord.Y = (data >> 16) & 0xFFFF;
         SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
         break;
+    case REG_FFVM_DISP_WH:
+        disp_init(riscv, data);
+        break;
+    case REG_FFVM_DISP_ADDR       : riscv->disp_addr = data & (MAX_MEM_SIZE - 1); break;
+    case REG_FFVM_DISP_REFRESH_XY : riscv->disp_refresh_xy = data; break;
+    case REG_FFVM_DISP_REFRESH_WH : riscv->disp_refresh_wh = data; break;
+    case REG_FFVM_DISP_REFRESH_DIV: riscv->disp_refresh_div= data; break;
     case REG_FFVM_REALTIME:
         riscv->ffvm_realtime_diff = time(NULL) - data;
         break;
@@ -144,7 +208,7 @@ static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
     const uint16_t inst_imm10  =((instruction >> 4) & (1 << 2)) | ((instruction >> 2) & (1 << 3)) | ((instruction >> 7) & (0x3 << 4)) | ((instruction >> 1) & (0x7 << 6));
     const uint16_t inst_imm12  =((instruction >> 2) & (0x7 << 1)) | ((instruction >> 7) & (1 << 4)) | ((instruction << 3) & (1 << 5))
                                |((instruction >> 1) & (0x2d << 6)) | ((instruction << 1) & (1 << 7)) | ((instruction << 2) & (1 << 10));
-    const uint16_t inst_imm18  =((instruction << 5) & (1 << 17)) | ((instruction << 10) & (0x1f << 12));
+    const uint32_t inst_imm18  =((instruction << 5) & (1 << 17)) | ((instruction << 10) & (0x1f << 12));
     const uint16_t inst_funct2 = (instruction >>10) & 0x3;
     const uint16_t inst_funct3 = (instruction >>13) & 0x7;
     uint32_t bflag = 0, temp;
@@ -475,7 +539,7 @@ RISCV* riscv_init(char *rom)
     return riscv;
 }
 
-void riscv_free(RISCV *riscv) { free(riscv); }
+void riscv_free(RISCV *riscv) { disp_init(riscv, 0); free(riscv); }
 
 #define RISCV_CPU_FREQ  (100*1000*1000)
 #define RISCV_FRAMERATE  100
@@ -494,9 +558,8 @@ int main(int argc, char *argv[])
     while (!(riscv->flags & (FLAG_EXIT))) {
         if (!next_tick) next_tick = get_tick_count();
         next_tick += 1000 / RISCV_FRAMERATE;
-        for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) {
-            riscv_run(riscv);
-        }
+        for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) riscv_run(riscv);
+        disp_refresh(riscv);
         sleep_tick = next_tick - get_tick_count();
         if (sleep_tick > 0) usleep(sleep_tick * 1000);
 //      printf("sleep_tick: %d\n", sleep_tick);
