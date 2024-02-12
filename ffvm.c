@@ -2,20 +2,24 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <conio.h>
 #include <windows.h>
 
 #define get_tick_count GetTickCount
 
-#define REG_FFVM_STDIO  0xFF000000
-#define REG_FFVM_STDERR 0xFF000004
-#define REG_FFVM_GETCH  0xFF000008
-#define REG_FFVM_KBHIT  0xFF00000C
+#define REG_FFVM_STDIO    0xFF000000
+#define REG_FFVM_STDERR   0xFF000004
+#define REG_FFVM_GETCH    0xFF000008
+#define REG_FFVM_KBHIT    0xFF00000C
 
-#define REG_FFVM_MSLEEP 0xFF000100
-#define REG_FFVM_CLRSCR 0xFF000104
-#define REG_FFVM_GOTOXY 0xFF000108
+#define REG_FFVM_MSLEEP   0xFF000100
+#define REG_FFVM_CLRSCR   0xFF000104
+#define REG_FFVM_GOTOXY   0xFF000108
+
+#define REG_FFVM_TICKTIME 0xFF000400
+#define REG_FFVM_REALTIME 0xFF000404
 
 typedef struct {
     uint32_t pc;
@@ -25,9 +29,10 @@ typedef struct {
     uint32_t mreserved;
     #define MAX_MEM_SIZE (64 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
-    uint32_t heap;
-    #define TS_EXIT (1 << 0)
-    uint32_t status;
+    #define FLAG_EXIT (1 << 0)
+    uint32_t flags;
+    uint32_t ffvm_start_tick;
+    uint32_t ffvm_realtime_diff;
 } RISCV;
 
 static uint8_t riscv_memr8(RISCV *riscv, uint32_t addr)
@@ -63,9 +68,11 @@ static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
 static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
     switch (addr) {
-    case REG_FFVM_STDIO: return fgetc(stdin);
-    case REG_FFVM_GETCH: return getch();
-    case REG_FFVM_KBHIT: return kbhit();
+    case REG_FFVM_STDIO   : return fgetc(stdin);
+    case REG_FFVM_GETCH   : return getch();
+    case REG_FFVM_KBHIT   : return kbhit();
+    case REG_FFVM_TICKTIME: return get_tick_count() - riscv->ffvm_start_tick;
+    case REG_FFVM_REALTIME: return time(NULL) - riscv->ffvm_realtime_diff;
     }
     if (addr >= REG_FFVM_STDIO) return 0;
 
@@ -92,6 +99,9 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
         coord.Y = (data >> 16) & 0xFFFF;
         SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
         break;
+    case REG_FFVM_REALTIME:
+        riscv->ffvm_realtime_diff = time(NULL) - data;
+        break;
     }
     if (addr >= REG_FFVM_STDIO) return;
 
@@ -113,7 +123,7 @@ static int32_t signed_extend(uint32_t a, int size)
 static uint32_t handle_ecall(RISCV *riscv)
 {
     switch (riscv->x[17]) {
-    case 93: riscv->status |= TS_EXIT; return 0; // sys_exit
+    case 93: riscv->flags |= FLAG_EXIT; return 0; // sys_exit
     default: return 0;
     }
 }
@@ -456,6 +466,7 @@ RISCV* riscv_init(char *rom)
     RISCV *riscv = calloc(1, sizeof(RISCV));
     if (!riscv) return NULL;
     riscv->csr[0x301] = (1 << 8) | (1 << 12) | (1 << 0) | (1 << 2); // misa rv32imac
+    riscv->ffvm_start_tick = get_tick_count();
     fp = fopen(rom, "rb");
     if (fp) {
         fread(riscv->mem, 1, sizeof(riscv->mem), fp);
@@ -480,7 +491,7 @@ int main(int argc, char *argv[])
     riscv = riscv_init(romfile);
     if (!riscv) return 0;
 
-    while (!(riscv->status & (TS_EXIT))) {
+    while (!(riscv->flags & (FLAG_EXIT))) {
         if (!next_tick) next_tick = get_tick_count();
         next_tick += 1000 / RISCV_FRAMERATE;
         for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) {
