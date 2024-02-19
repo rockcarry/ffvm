@@ -2,8 +2,8 @@
 
 set -e
 
-CFLAGS="-Wall -Os -I$PWD/libavdev/include"
+CFLAGS="-Wall -Os -g -I$PWD/libavdev/include"
 LDFLAGS="-L$PWD/libavdev/lib -lavdev -lgdi32"
 
-gcc $CFLAGS ffvm.c $LDFLAGS -o ffvm
+gcc --static $CFLAGS ffvm.c $LDFLAGS -o ffvm
 

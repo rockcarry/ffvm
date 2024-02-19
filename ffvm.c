@@ -16,10 +16,8 @@
 #define REG_FFVM_STDERR           0xFF000004
 #define REG_FFVM_GETCH            0xFF000008
 #define REG_FFVM_KBHIT            0xFF00000C
-
-#define REG_FFVM_MSLEEP           0xFF000100
-#define REG_FFVM_CLRSCR           0xFF000104
-#define REG_FFVM_GOTOXY           0xFF000108
+#define REG_FFVM_CLRSCR           0xFF000010
+#define REG_FFVM_GOTOXY           0xFF000014
 
 #define REG_FFVM_DISP_WH          0xFF000200
 #define REG_FFVM_DISP_ADDR        0xFF000204
@@ -63,23 +61,24 @@ static void disp_init(RISCV *riscv, int wh)
 
 static void disp_refresh(RISCV *riscv)
 {
-    int refresh = 0, x, y, w, h, i, j;
+    int refresh = 0, x, y, dw, rw, rh, i, j;
     if (riscv->disp_refresh_div == 0 && riscv->disp_refresh_wh) refresh = 1;
     if (riscv->disp_refresh_div) {
         if (++riscv->disp_refresh_cnt >= riscv->disp_refresh_div) riscv->disp_refresh_cnt = 0, refresh = 1;
     }
     if (refresh) {
-        x = (riscv->disp_refresh_xy >> 0) & 0xFFFF;
-        y = (riscv->disp_refresh_xy >>16) & 0xFFFF;
-        w = (riscv->disp_refresh_wh >> 0) & 0xFFFF;
-        h = (riscv->disp_refresh_wh >>16) & 0xFFFF;
+        dw = (riscv->disp_wh         >> 0) & 0xFFFF;
+        x  = (riscv->disp_refresh_xy >> 0) & 0xFFFF;
+        y  = (riscv->disp_refresh_xy >>16) & 0xFFFF;
+        rw = (riscv->disp_refresh_wh >> 0) & 0xFFFF;
+        rh = (riscv->disp_refresh_wh >>16) & 0xFFFF;
         BMP *bmp = vdev_lock(riscv->vdev);
         if (bmp) {
-            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr) + y * w + x;
-            uint32_t *dst = (uint32_t*)bmp->pdata + y * w + x;
-            for (i = 0; i < h; i++) {
-                for (j = 0; j < w; j++) dst[j] = src[j];
-                src += w, dst += w;
+            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr) + y * dw + x;
+            uint32_t *dst = (uint32_t*)bmp->pdata + y * dw + x;
+            for (i = 0; i < rh; i++) {
+                for (j = 0; j < rw; j++) dst[j] = src[j];
+                src += dw + dw - rw, dst += dw + dw - rw;
             }
             vdev_unlock(riscv->vdev);
         }
@@ -149,8 +148,7 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
     switch (addr) {
     case REG_FFVM_STDIO : if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
     case REG_FFVM_STDERR: if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
-    case REG_FFVM_MSLEEP: usleep(data * 1000); return;
-    case REG_FFVM_CLRSCR: system("cls");       return;
+    case REG_FFVM_CLRSCR: system("cls"); return;
     case REG_FFVM_GOTOXY:
         coord.X = (data >> 0 ) & 0xFFFF;
         coord.Y = (data >> 16) & 0xFFFF;
@@ -539,7 +537,12 @@ RISCV* riscv_init(char *rom)
     return riscv;
 }
 
-void riscv_free(RISCV *riscv) { disp_init(riscv, 0); free(riscv); }
+void riscv_free(RISCV *riscv)
+{
+    if (!riscv) return;
+    vdev_exit(riscv->vdev, 1);
+    free(riscv);
+}
 
 #define RISCV_CPU_FREQ  (100*1000*1000)
 #define RISCV_FRAMERATE  100
