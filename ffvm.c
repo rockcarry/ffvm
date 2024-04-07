@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <conio.h>
 #include <windows.h>
 #include <libavdev/adev.h>
@@ -11,6 +12,7 @@
 #include <libavdev/idev.h>
 
 #define get_tick_count GetTickCount
+#define FFVM_ADEV_MAX_BUFNUM      5
 
 #define REG_FFVM_STDIO            0xFF000000
 #define REG_FFVM_STDERR           0xFF000004
@@ -24,6 +26,22 @@
 #define REG_FFVM_DISP_REFRESH_XY  0xFF000208
 #define REG_FFVM_DISP_REFRESH_WH  0xFF00020C
 #define REG_FFVM_DISP_REFRESH_DIV 0xFF000210
+
+#define REG_FFVM_AUDIO_OUT_FMT    0xFF000300
+#define REG_FFVM_AUDIO_OUT_ADDR   0xFF000304
+#define REG_FFVM_AUDIO_OUT_HEAD   0xFF000308
+#define REG_FFVM_AUDIO_OUT_TAIL   0xFF00030C
+#define REG_FFVM_AUDIO_OUT_SIZE   0xFF000310
+#define REG_FFVM_AUDIO_OUT_CURR   0xFF000314
+#define REG_FFVM_AUDIO_OUT_LOCK   0xFF000318
+
+#define REG_FFVM_AUDIO_IN_FMT     0xFF000320
+#define REG_FFVM_AUDIO_IN_ADDR    0xFF000324
+#define REG_FFVM_AUDIO_IN_HEAD    0xFF000328
+#define REG_FFVM_AUDIO_IN_TAIL    0xFF00032C
+#define REG_FFVM_AUDIO_IN_SIZE    0xFF000330
+#define REG_FFVM_AUDIO_IN_CURR    0xFF000334
+#define REG_FFVM_AUDIO_IN_LOCK    0xFF000338
 
 #define REG_FFVM_TICKTIME         0xFF000400
 #define REG_FFVM_REALTIME         0xFF000404
@@ -41,21 +59,65 @@ typedef struct {
     uint32_t flags;
     uint32_t ffvm_start_tick;
     uint32_t ffvm_realtime_diff;
-    void    *vdev;
+    void    *adev, *vdev;
+    uint8_t *adev_out_buf;
+    int      adev_out_len;
+    pthread_mutex_t lock;
+
     uint32_t disp_wh;
     uint32_t disp_addr;
     uint32_t disp_refresh_xy;
     uint32_t disp_refresh_wh;
     uint32_t disp_refresh_div;
     uint32_t disp_refresh_cnt;
+
+    uint32_t audio_out_fmt;
+    uint32_t audio_out_addr;
+    uint32_t audio_out_head;
+    uint32_t audio_out_tail;
+    uint32_t audio_out_size;
+    uint32_t audio_out_curr;
+    uint32_t audio_out_lock;
+
+    uint32_t audio_in_fmt;
+    uint32_t audio_in_addr;
+    uint32_t audio_in_head;
+    uint32_t audio_in_tail;
+    uint32_t audio_in_size;
+    uint32_t audio_in_curr;
+    uint32_t audio_in_lock;
 } RISCV;
+
+static int ringbuf_write(uint8_t *rbuf, int maxsize, int tail, uint8_t *src, int len)
+{
+    uint8_t *buf1 = rbuf    + tail;
+    int      len1 = maxsize - tail < len ? maxsize - tail : len;
+    uint8_t *buf2 = rbuf;
+    int      len2 = len - len1;
+    memcpy(buf1, src + 0   , len1);
+    memcpy(buf2, src + len1, len2);
+    return len2 ? len2 : tail + len1;
+}
+
+static int ringbuf_read(uint8_t *rbuf, int maxsize, int head, uint8_t *dst, int len)
+{
+    uint8_t *buf1 = rbuf    + head;
+    int      len1 = maxsize - head < len ? maxsize - head : len;
+    uint8_t *buf2 = rbuf;
+    int      len2 = len - len1;
+    if (dst) {
+        memcpy(dst + 0   , buf1, len1);
+        memcpy(dst + len1, buf2, len2);
+    }
+    return len2 ? len2 : head + len1;
+}
 
 static void disp_init(RISCV *riscv, int wh)
 {
     if (riscv->disp_wh != wh) {
         riscv->disp_wh  = wh;
-        vdev_exit(riscv->vdev, 1);
-        riscv->vdev = vdev_init((wh >> 0) & 0xFFFF, (wh >> 16) & 0xFFFF, NULL, NULL, NULL);
+        vdev_exit(riscv->vdev, 1); riscv->vdev = NULL;
+        if (wh) riscv->vdev = vdev_init((wh >> 0) & 0xFFFF, (wh >> 16) & 0xFFFF, NULL, NULL, NULL);
     }
 }
 
@@ -74,7 +136,7 @@ static void disp_refresh(RISCV *riscv)
         rh = (riscv->disp_refresh_wh >>16) & 0xFFFF;
         BMP *bmp = vdev_lock(riscv->vdev);
         if (bmp) {
-            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr) + y * dw + x;
+            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr % MAX_MEM_SIZE) + y * dw + x;
             uint32_t *dst = (uint32_t*)bmp->pdata + y * dw + x;
             for (i = 0; i < rh; i++) {
                 for (j = 0; j < rw; j++) dst[j] = src[j];
@@ -83,6 +145,92 @@ static void disp_refresh(RISCV *riscv)
             vdev_unlock(riscv->vdev);
         }
         if (riscv->disp_refresh_div == 0) riscv->disp_refresh_wh = 0;
+    }
+}
+
+static void ffvm_adev_callback(void *ctxt, int cmd, void *buf, int len)
+{
+    RISCV *riscv = ctxt;
+    switch (cmd) {
+    case ADEV_CMD_DATA_RECORD:
+        pthread_mutex_lock(&riscv->lock);
+        if (riscv->audio_in_size) {
+            uint8_t *rbuf = &(riscv->mem[riscv->audio_in_addr % MAX_MEM_SIZE]);
+            int      head = riscv->audio_in_head;
+            int      tail = riscv->audio_in_tail;
+            int      size = riscv->audio_in_size;
+            int      curr = riscv->audio_in_curr;
+            int      avail= size - curr;
+            int      drop = len  - avail;
+            if (drop > 0) {
+                head  = ringbuf_read(rbuf, size, head, NULL, drop);
+                curr -= drop;
+            }
+            tail  = ringbuf_write(rbuf, size, tail, buf, len);
+            curr += len;
+            riscv->audio_in_head = head;
+            riscv->audio_in_tail = tail;
+            riscv->audio_in_curr = curr;
+        }
+        pthread_mutex_unlock(&riscv->lock);
+        break;
+    }
+}
+
+static void audio_init(RISCV *riscv, uint32_t fmt, int flag)
+{
+    int new_ch   = fmt >> 24;
+    int new_rate = fmt & 0xFFFFFF;
+    int cur_ch, cur_rate, out_changed = 0, in_changed = 0;
+    if (flag) { // audio in
+        cur_ch   = riscv->audio_in_fmt  >> 24;
+        cur_rate = riscv->audio_in_fmt  & 0xFFFFFF;
+        riscv->audio_in_fmt  = fmt;
+        if (cur_ch != new_ch || cur_rate != new_rate) in_changed  = 1;
+    } else {    // audio out
+        cur_ch   = riscv->audio_out_fmt >> 24;
+        cur_rate = riscv->audio_out_fmt & 0xFFFFFF;
+        riscv->audio_out_fmt = fmt;
+        if (cur_ch != new_ch || cur_rate != new_rate) out_changed = 1;
+    }
+    if (out_changed) {
+        free(riscv->adev_out_buf); riscv->adev_out_buf = NULL;
+        adev_exit(riscv->adev);    riscv->adev         = NULL;
+        if (riscv->audio_in_fmt || riscv->audio_out_fmt) {
+            riscv->adev = adev_init(new_rate, new_ch, new_rate / 50, FFVM_ADEV_MAX_BUFNUM);
+            riscv->adev_out_len = new_rate / 50 * sizeof(int16_t) * new_ch;
+            riscv->adev_out_buf = malloc(riscv->adev_out_len);
+        }
+    }
+    if (in_changed ) {
+        if (!riscv->adev) {
+            int out_ch   = riscv->audio_out_fmt >> 24;
+            int out_rate = riscv->audio_out_fmt & 0xFFFFFF;
+            riscv->adev = adev_init(out_rate, out_ch, out_rate / 50, FFVM_ADEV_MAX_BUFNUM);
+            adev_set(riscv->adev, "callback", ffvm_adev_callback);
+            adev_set(riscv->adev, "cbctx"   , riscv);
+        }
+        adev_record(riscv->adev, 0, 0, 0, 0, 0);
+        if (riscv->audio_in_fmt) adev_record(riscv->adev, 1, new_rate, new_ch, new_rate / 50, FFVM_ADEV_MAX_BUFNUM);
+    }
+}
+
+static void audio_update(RISCV *riscv)
+{
+    if (riscv->audio_out_lock || !riscv->audio_out_size) return;
+     while (adev_get(riscv->adev, "bufnum", NULL) < FFVM_ADEV_MAX_BUFNUM) {
+        uint8_t *rbuf = &(riscv->mem[riscv->audio_out_addr % MAX_MEM_SIZE]);
+        int      head = riscv->audio_out_head;
+        int      size = riscv->audio_out_size;
+        int      curr = riscv->audio_out_curr;
+        int      n    = curr < riscv->adev_out_len ? curr : riscv->adev_out_len;
+        if (n > 0) {
+            head  = ringbuf_read(rbuf, size, head, riscv->adev_out_buf, n);
+            curr -= n;
+            riscv->audio_out_head = head;
+            riscv->audio_out_curr = curr;
+            adev_play(riscv->adev, riscv->adev_out_buf, n, 0);
+        }
     }
 }
 
@@ -122,14 +270,12 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
     case REG_FFVM_STDIO           : return fgetc(stdin);
     case REG_FFVM_GETCH           : return getch();
     case REG_FFVM_KBHIT           : return kbhit();
-    case REG_FFVM_DISP_WH         : return riscv->disp_wh;
-    case REG_FFVM_DISP_ADDR       : return riscv->disp_addr;
-    case REG_FFVM_DISP_REFRESH_XY : return riscv->disp_refresh_xy;
-    case REG_FFVM_DISP_REFRESH_WH : return riscv->disp_refresh_wh;
-    case REG_FFVM_DISP_REFRESH_DIV: return riscv->disp_refresh_div;
     case REG_FFVM_TICKTIME        : return get_tick_count() - riscv->ffvm_start_tick;
     case REG_FFVM_REALTIME        : return time(NULL) - riscv->ffvm_realtime_diff;
     }
+    if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_REFRESH_DIV) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
+    if (addr >= REG_FFVM_AUDIO_OUT_FMT && addr <= REG_FFVM_AUDIO_OUT_LOCK) return *(&riscv->audio_out_fmt + (addr - REG_FFVM_AUDIO_OUT_FMT) / sizeof(uint32_t));
+    if (addr >= REG_FFVM_AUDIO_IN_FMT  && addr <= REG_FFVM_AUDIO_IN_LOCK ) return *(&riscv->audio_in_fmt  + (addr - REG_FFVM_AUDIO_IN_FMT ) / sizeof(uint32_t));
     if (addr >= REG_FFVM_STDIO) return 0;
 
     if ((addr & 0x3) == 0) {
@@ -157,14 +303,23 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
     case REG_FFVM_DISP_WH:
         disp_init(riscv, data);
         break;
-    case REG_FFVM_DISP_ADDR       : riscv->disp_addr = data & (MAX_MEM_SIZE - 1); break;
-    case REG_FFVM_DISP_REFRESH_XY : riscv->disp_refresh_xy = data; break;
-    case REG_FFVM_DISP_REFRESH_WH : riscv->disp_refresh_wh = data; break;
-    case REG_FFVM_DISP_REFRESH_DIV: riscv->disp_refresh_div= data; break;
+    case REG_FFVM_AUDIO_OUT_FMT:
+        audio_init(riscv, data, 0);
+        break;
+    case REG_FFVM_AUDIO_IN_FMT:
+        audio_init(riscv, data, 1);
+        break;
+    case REG_FFVM_AUDIO_IN_LOCK:
+        if (data) pthread_mutex_lock(&riscv->lock);
+        else    pthread_mutex_unlock(&riscv->lock);
+        break;
     case REG_FFVM_REALTIME:
         riscv->ffvm_realtime_diff = time(NULL) - data;
         break;
     }
+    if      (addr >= REG_FFVM_DISP_ADDR && addr <= REG_FFVM_DISP_REFRESH_DIV) *(&riscv->disp_addr + (addr - REG_FFVM_DISP_ADDR) / sizeof(uint32_t)) = data;
+    else if (addr >= REG_FFVM_AUDIO_OUT_ADDR && addr <= REG_FFVM_AUDIO_OUT_LOCK) *(&riscv->audio_out_addr + (addr - REG_FFVM_AUDIO_OUT_ADDR) / sizeof(uint32_t)) = data;
+    else if (addr >= REG_FFVM_AUDIO_IN_ADDR  && addr <= REG_FFVM_AUDIO_IN_LOCK ) *(&riscv->audio_in_addr  + (addr - REG_FFVM_AUDIO_IN_ADDR ) / sizeof(uint32_t)) = data;
     if (addr >= REG_FFVM_STDIO) return;
 
     if ((addr & 0x3) == 0) {
@@ -534,17 +689,25 @@ RISCV* riscv_init(char *rom)
         fread(riscv->mem, 1, sizeof(riscv->mem), fp);
         fclose(fp);
     }
+    pthread_mutex_init(&riscv->lock, NULL);
     return riscv;
 }
 
 void riscv_free(RISCV *riscv)
 {
     if (!riscv) return;
+    if (riscv->audio_in_lock) {
+        riscv->audio_in_lock = 0;
+        pthread_mutex_unlock(&riscv->lock);
+    }
     vdev_exit(riscv->vdev, 1);
+    adev_exit(riscv->adev);
+    pthread_mutex_destroy(&riscv->lock);
+    free(riscv->adev_out_buf);
     free(riscv);
 }
 
-#define RISCV_CPU_FREQ  (100*1000*1000)
+#define RISCV_CPU_FREQ  (200*1000*1000)
 #define RISCV_FRAMERATE  100
 
 int main(int argc, char *argv[])
@@ -563,8 +726,11 @@ int main(int argc, char *argv[])
         next_tick += 1000 / RISCV_FRAMERATE;
         for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) riscv_run(riscv);
         disp_refresh(riscv);
+        audio_update(riscv);
         sleep_tick = next_tick - get_tick_count();
+        if (riscv->audio_in_lock) pthread_mutex_unlock(&riscv->lock);
         if (sleep_tick > 0) usleep(sleep_tick * 1000);
+        if (riscv->audio_in_lock) pthread_mutex_lock  (&riscv->lock);
 //      printf("sleep_tick: %d\n", sleep_tick);
     }
 
