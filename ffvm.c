@@ -529,8 +529,8 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
     case 0x03: // i-type
         maddr = riscv->x[inst_rs1] + signed_extend(inst_imm12i, 12);
         switch (inst_funct3) {
-        case 0x0: riscv->x[inst_rd] = (int32_t)riscv_memr8 (riscv, maddr); break; // lb
-        case 0x1: riscv->x[inst_rd] = (int32_t)riscv_memr16(riscv, maddr); break; // lh
+        case 0x0: riscv->x[inst_rd] = (int8_t )riscv_memr8 (riscv, maddr); break; // lb
+        case 0x1: riscv->x[inst_rd] = (int16_t)riscv_memr16(riscv, maddr); break; // lh
         case 0x2: riscv->x[inst_rd] = riscv_memr32(riscv, maddr); break; // lw
         case 0x4: riscv->x[inst_rd] = riscv_memr8 (riscv, maddr); break; // lbu
         case 0x5: riscv->x[inst_rd] = riscv_memr16(riscv, maddr); break; // lhu
