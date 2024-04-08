@@ -21,6 +21,13 @@
 #define REG_FFVM_CLRSCR           0xFF000010
 #define REG_FFVM_GOTOXY           0xFF000014
 
+#define REG_FFVM_KEYBD1           0xFF000110
+#define REG_FFVM_KEYBD2           0xFF000114
+#define REG_FFVM_KEYBD3           0xFF000118
+#define REG_FFVM_KEYBD4           0xFF00011C
+#define REG_FFVM_MOUSE_XY         0xFF000120
+#define REG_FFVM_MOUSE_BTN        0xFF000124
+
 #define REG_FFVM_DISP_WH          0xFF000200
 #define REG_FFVM_DISP_ADDR        0xFF000204
 #define REG_FFVM_DISP_REFRESH_XY  0xFF000208
@@ -60,6 +67,7 @@ typedef struct {
     uint32_t ffvm_start_tick;
     uint32_t ffvm_realtime_diff;
     void    *adev, *vdev;
+    IDEV    *idev;
     uint8_t *adev_out_buf;
     int      adev_out_len;
     pthread_mutex_t lock;
@@ -116,8 +124,11 @@ static void disp_init(RISCV *riscv, int wh)
 {
     if (riscv->disp_wh != wh) {
         riscv->disp_wh  = wh;
-        vdev_exit(riscv->vdev, 1); riscv->vdev = NULL;
-        if (wh) riscv->vdev = vdev_init((wh >> 0) & 0xFFFF, (wh >> 16) & 0xFFFF, NULL, NULL, NULL);
+        vdev_exit(riscv->vdev, 1); riscv->vdev = riscv->idev = NULL;
+        if (wh) {
+            riscv->vdev = vdev_init((wh >> 0) & 0xFFFF, (wh >> 16) & 0xFFFF, NULL, NULL, NULL);
+            riscv->idev = (void*)vdev_get(riscv->vdev, "idev", NULL);
+        }
     }
 }
 
@@ -267,12 +278,15 @@ static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
 static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
     switch (addr) {
-    case REG_FFVM_STDIO           : return fgetc(stdin);
-    case REG_FFVM_GETCH           : return getch();
-    case REG_FFVM_KBHIT           : return kbhit();
-    case REG_FFVM_TICKTIME        : return get_tick_count() - riscv->ffvm_start_tick;
-    case REG_FFVM_REALTIME        : return time(NULL) - riscv->ffvm_realtime_diff;
+    case REG_FFVM_STDIO    : return fgetc(stdin);
+    case REG_FFVM_GETCH    : return getch();
+    case REG_FFVM_KBHIT    : return kbhit();
+    case REG_FFVM_TICKTIME : return get_tick_count() - riscv->ffvm_start_tick;
+    case REG_FFVM_REALTIME : return time(NULL) - riscv->ffvm_realtime_diff;
+    case REG_FFVM_MOUSE_XY : return (riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16);
+    case REG_FFVM_MOUSE_BTN: return (riscv->idev->mouse_btns);
     }
+    if (addr >= REG_FFVM_KEYBD1 && addr <= REG_FFVM_KEYBD4) { return *(riscv->idev->key_bits + (addr - REG_FFVM_KEYBD1) / sizeof(uint32_t)); }
     if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_REFRESH_DIV) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
     if (addr >= REG_FFVM_AUDIO_OUT_FMT && addr <= REG_FFVM_AUDIO_OUT_LOCK) return *(&riscv->audio_out_fmt + (addr - REG_FFVM_AUDIO_OUT_FMT) / sizeof(uint32_t));
     if (addr >= REG_FFVM_AUDIO_IN_FMT  && addr <= REG_FFVM_AUDIO_IN_LOCK ) return *(&riscv->audio_in_fmt  + (addr - REG_FFVM_AUDIO_IN_FMT ) / sizeof(uint32_t));
