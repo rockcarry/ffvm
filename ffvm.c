@@ -134,24 +134,24 @@ static void disp_init(RISCV *riscv, int wh)
 
 static void disp_refresh(RISCV *riscv)
 {
-    int refresh = 0, x, y, dw, rw, rh, i, j;
+    int refresh = 0, rx, ry, dw, rw, rh, i;
     if (riscv->disp_refresh_div == 0 && riscv->disp_refresh_wh) refresh = 1;
     if (riscv->disp_refresh_div) {
         if (++riscv->disp_refresh_cnt >= riscv->disp_refresh_div) riscv->disp_refresh_cnt = 0, refresh = 1;
     }
     if (refresh) {
         dw = (riscv->disp_wh         >> 0) & 0xFFFF;
-        x  = (riscv->disp_refresh_xy >> 0) & 0xFFFF;
-        y  = (riscv->disp_refresh_xy >>16) & 0xFFFF;
+        rx = (riscv->disp_refresh_xy >> 0) & 0xFFFF;
+        ry = (riscv->disp_refresh_xy >>16) & 0xFFFF;
         rw = (riscv->disp_refresh_wh >> 0) & 0xFFFF;
         rh = (riscv->disp_refresh_wh >>16) & 0xFFFF;
         BMP *bmp = vdev_lock(riscv->vdev);
         if (bmp) {
-            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr % MAX_MEM_SIZE) + y * dw + x;
-            uint32_t *dst = (uint32_t*)bmp->pdata + y * dw + x;
+            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr % MAX_MEM_SIZE) + ry * dw + rx;
+            uint32_t *dst = (uint32_t*)bmp->pdata + ry * dw + rx;
             for (i = 0; i < rh; i++) {
-                for (j = 0; j < rw; j++) dst[j] = src[j];
-                src += dw + dw - rw, dst += dw + dw - rw;
+                memcpy(dst, src, rw * sizeof(uint32_t));
+                src += dw, dst += dw;
             }
             vdev_unlock(riscv->vdev);
         }
@@ -721,8 +721,8 @@ void riscv_free(RISCV *riscv)
     free(riscv);
 }
 
-#define RISCV_CPU_FREQ  (200*1000*1000)
-#define RISCV_FRAMERATE  100
+#define RISCV_CPU_FREQ  (300*1000*1000)
+#define RISCV_FRAMERATE  200
 
 int main(int argc, char *argv[])
 {

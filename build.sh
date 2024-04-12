@@ -2,7 +2,7 @@
 
 set -e
 
-CFLAGS="-Wall -Os -g -I$PWD/libavdev/include"
+CFLAGS="-Wall -Wno-stringop-truncation -Ofast -g -I$PWD/libavdev/include"
 LDFLAGS="-L$PWD/libavdev/lib -lavdev -lgdi32 -lwinmm"
 
 gcc --static $CFLAGS ffvm.c $LDFLAGS -o ffvm
