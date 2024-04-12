@@ -14,6 +14,9 @@
 #define get_tick_count GetTickCount
 #define FFVM_ADEV_MAX_BUFNUM      5
 
+#define RISCV_CPU_FREQ           (300*1000*1000)
+#define RISCV_FRAMERATE           200
+
 #define REG_FFVM_STDIO            0xFF000000
 #define REG_FFVM_STDERR           0xFF000004
 #define REG_FFVM_GETCH            0xFF000008
@@ -132,7 +135,7 @@ static void disp_init(RISCV *riscv, int wh)
     }
 }
 
-static void disp_refresh(RISCV *riscv)
+static void disp_refresh(RISCV *riscv, uint32_t counter)
 {
     int refresh = 0, rx, ry, dw, rw, rh, i;
     if (riscv->disp_refresh_div == 0 && riscv->disp_refresh_wh) refresh = 1;
@@ -156,6 +159,10 @@ static void disp_refresh(RISCV *riscv)
             vdev_unlock(riscv->vdev);
         }
         if (riscv->disp_refresh_div == 0) riscv->disp_refresh_wh = 0;
+    }
+    if (counter % RISCV_FRAMERATE == 0) {
+        char *state = (char*)vdev_get(riscv->vdev, "state", NULL);
+        if (state && strcmp(state, "closed") == 0) riscv->disp_wh = 0;
     }
 }
 
@@ -226,7 +233,7 @@ static void audio_init(RISCV *riscv, uint32_t fmt, int flag)
     }
 }
 
-static void audio_update(RISCV *riscv)
+static void audio_update(RISCV *riscv, uint32_t counter)
 {
     if (riscv->audio_out_lock || !riscv->audio_out_size) return;
      while (adev_get(riscv->adev, "bufnum", NULL) < FFVM_ADEV_MAX_BUFNUM) {
@@ -721,13 +728,10 @@ void riscv_free(RISCV *riscv)
     free(riscv);
 }
 
-#define RISCV_CPU_FREQ  (300*1000*1000)
-#define RISCV_FRAMERATE  200
-
 int main(int argc, char *argv[])
 {
     char romfile[MAX_PATH] = "test.rom";
-    uint32_t next_tick = 0;
+    uint32_t next_tick = 0, run_counter = 0;
     int32_t  sleep_tick, i;
     RISCV    *riscv = NULL;
 
@@ -739,8 +743,9 @@ int main(int argc, char *argv[])
         if (!next_tick) next_tick = get_tick_count();
         next_tick += 1000 / RISCV_FRAMERATE;
         for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) riscv_run(riscv);
-        disp_refresh(riscv);
-        audio_update(riscv);
+        run_counter += 1;
+        disp_refresh(riscv, run_counter);
+        audio_update(riscv, run_counter);
         sleep_tick = next_tick - get_tick_count();
         if (riscv->audio_in_lock) pthread_mutex_unlock(&riscv->lock);
         if (sleep_tick > 0) usleep(sleep_tick * 1000);
