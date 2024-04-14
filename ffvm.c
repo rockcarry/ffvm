@@ -16,6 +16,7 @@
 
 #define RISCV_CPU_FREQ           (300*1000*1000)
 #define RISCV_FRAMERATE           200
+#define RISCV_DISK_SECTSIZE       512
 
 #define REG_FFVM_STDIO            0xFF000000
 #define REG_FFVM_STDERR           0xFF000004
@@ -55,6 +56,11 @@
 
 #define REG_FFVM_TICKTIME         0xFF000400
 #define REG_FFVM_REALTIME         0xFF000404
+
+#define REG_FFVM_DISK_SECTOR_NUM  0xFF000500
+#define REG_FFVM_DISK_SECTOR_SIZE 0xFF000504
+#define REG_FFVM_DISK_SECTOR_IDX  0xFF000508
+#define REG_FFVM_DISK_SECTOR_DAT  0xFF00050C
 
 typedef struct {
     uint32_t pc;
@@ -97,6 +103,8 @@ typedef struct {
     uint32_t audio_in_size;
     uint32_t audio_in_curr;
     uint32_t audio_in_lock;
+
+    FILE    *disk_fp;
 } RISCV;
 
 static int ringbuf_write(uint8_t *rbuf, int maxsize, int tail, uint8_t *src, int len)
@@ -121,6 +129,17 @@ static int ringbuf_read(uint8_t *rbuf, int maxsize, int head, uint8_t *dst, int 
         memcpy(dst + len1, buf2, len2);
     }
     return len2 ? len2 : head + len1;
+}
+
+static uint64_t get_file_size(FILE *fp)
+{
+    uint64_t size;
+    uint64_t off;
+    off  = ftello(fp);
+    fseeko(fp, 0  , SEEK_END);
+    size = ftello(fp);
+    fseeko(fp, off, SEEK_SET);
+    return size;
 }
 
 static void disp_init(RISCV *riscv, int wh)
@@ -292,6 +311,9 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
     case REG_FFVM_REALTIME : return time(NULL) - riscv->ffvm_realtime_diff;
     case REG_FFVM_MOUSE_XY : return (riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16);
     case REG_FFVM_MOUSE_BTN: return (riscv->idev->mouse_btns);
+    case REG_FFVM_DISK_SECTOR_NUM : return get_file_size(riscv->disk_fp) / RISCV_DISK_SECTSIZE;
+    case REG_FFVM_DISK_SECTOR_SIZE: return RISCV_DISK_SECTSIZE;
+    case REG_FFVM_DISK_SECTOR_DAT : return fgetc(riscv->disk_fp);
     }
     if (addr >= REG_FFVM_KEYBD1 && addr <= REG_FFVM_KEYBD4) { return *(riscv->idev->key_bits + (addr - REG_FFVM_KEYBD1) / sizeof(uint32_t)); }
     if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_REFRESH_DIV) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
@@ -336,6 +358,12 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
         break;
     case REG_FFVM_REALTIME:
         riscv->ffvm_realtime_diff = time(NULL) - data;
+        break;
+    case REG_FFVM_DISK_SECTOR_IDX:
+        fseeko(riscv->disk_fp, data * RISCV_DISK_SECTSIZE, SEEK_SET);
+        break;
+    case REG_FFVM_DISK_SECTOR_DAT:
+        fputc(data, riscv->disk_fp);
         break;
     }
     if      (addr >= REG_FFVM_DISP_ADDR && addr <= REG_FFVM_DISP_REFRESH_DIV) *(&riscv->disp_addr + (addr - REG_FFVM_DISP_ADDR) / sizeof(uint32_t)) = data;
@@ -698,7 +726,7 @@ void riscv_run(RISCV *riscv)
     riscv->x[0] = 0;
 }
 
-RISCV* riscv_init(char *rom)
+RISCV* riscv_init(char *rom, char *disk)
 {
     FILE  *fp    = NULL;
     RISCV *riscv = calloc(1, sizeof(RISCV));
@@ -710,6 +738,7 @@ RISCV* riscv_init(char *rom)
         fread(riscv->mem, 1, sizeof(riscv->mem), fp);
         fclose(fp);
     }
+    riscv->disk_fp = fopen(disk, "rb+");
     pthread_mutex_init(&riscv->lock, NULL);
     return riscv;
 }
@@ -724,28 +753,35 @@ void riscv_free(RISCV *riscv)
     vdev_exit(riscv->vdev, 1);
     adev_exit(riscv->adev);
     pthread_mutex_destroy(&riscv->lock);
+    if (riscv->disk_fp) fclose(riscv->disk_fp);
     free(riscv->adev_out_buf);
     free(riscv);
 }
 
 int main(int argc, char *argv[])
 {
-    char romfile[MAX_PATH] = "test.rom";
+    char *rom  = "test.rom";
+    char *disk = "disk.img";
     uint32_t next_tick = 0, run_counter = 0;
     int32_t  sleep_tick, i;
-    RISCV    *riscv = NULL;
+    RISCV   *riscv = NULL;
 
-    if (argc >= 2) strncpy(romfile, argv[1], sizeof(romfile));
-    riscv = riscv_init(romfile);
+    for (i = 1; i < argc; i++) {
+        if (strstr(argv[i], "--rom=" ) == argv[i]) rom  = argv[i] + sizeof("--rom=" ) - 1;
+        if (strstr(argv[i], "--disk=") == argv[i]) disk = argv[i] + sizeof("--disk=") - 1;
+    }
+    printf("rom : %s\n", rom );
+    printf("disk: %s\n", disk);
+
+    riscv = riscv_init(rom, disk);
     if (!riscv) return 0;
 
     while (!(riscv->flags & (FLAG_EXIT))) {
         if (!next_tick) next_tick = get_tick_count();
         next_tick += 1000 / RISCV_FRAMERATE;
         for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) riscv_run(riscv);
-        run_counter += 1;
-        disp_refresh(riscv, run_counter);
-        audio_update(riscv, run_counter);
+        disp_refresh(riscv, run_counter  );
+        audio_update(riscv, run_counter++);
         sleep_tick = next_tick - get_tick_count();
         if (riscv->audio_in_lock) pthread_mutex_unlock(&riscv->lock);
         if (sleep_tick > 0) usleep(sleep_tick * 1000);
