@@ -5,6 +5,6 @@ set -e
 CFLAGS="-Wall -Wno-stringop-truncation -Ofast -g -I$PWD/libavdev/include"
 LDFLAGS="-L$PWD/libavdev/lib -lavdev -lgdi32 -lwinmm"
 
-gcc --static $CFLAGS ffvm.c $LDFLAGS -o ffvm
+gcc --static $CFLAGS utils.c ffvm.c $LDFLAGS -o ffvm
 strip ffvm.exe
 

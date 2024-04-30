@@ -5,13 +5,11 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <conio.h>
-#include <windows.h>
 #include <libavdev/adev.h>
 #include <libavdev/vdev.h>
 #include <libavdev/idev.h>
+#include "utils.h"
 
-#define get_tick_count GetTickCount
 #define FFVM_ADEV_MAX_BUFNUM      5
 
 #define RISCV_CPU_FREQ           (300*1000*1000)
@@ -305,8 +303,8 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
     switch (addr) {
     case REG_FFVM_STDIO    : return fgetc(stdin);
-    case REG_FFVM_GETCH    : return getch();
-    case REG_FFVM_KBHIT    : return kbhit();
+    case REG_FFVM_GETCH    : return console_getch();
+    case REG_FFVM_KBHIT    : return console_kbhit();
     case REG_FFVM_TICKTIME : return get_tick_count() - riscv->ffvm_start_tick;
     case REG_FFVM_REALTIME : return time(NULL) - riscv->ffvm_realtime_diff;
     case REG_FFVM_MOUSE_XY : return (riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16);
@@ -333,16 +331,11 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 
 static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
-    COORD coord;
     switch (addr) {
     case REG_FFVM_STDIO : if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
     case REG_FFVM_STDERR: if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
-    case REG_FFVM_CLRSCR: system("cls"); return;
-    case REG_FFVM_GOTOXY:
-        coord.X = (data >> 0 ) & 0xFFFF;
-        coord.Y = (data >> 16) & 0xFFFF;
-        SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
-        break;
+    case REG_FFVM_CLRSCR: console_clrscr(); return;
+    case REG_FFVM_GOTOXY: console_gotoxy((data >> 0) & 0xFFFF, (data >> 16) & 0xFFFF); return;
     case REG_FFVM_DISP_WH:
         disp_init(riscv, data);
         break;
