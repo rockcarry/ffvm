@@ -12,8 +12,8 @@
 
 #define FFVM_ADEV_MAX_BUFNUM      5
 
-#define RISCV_CPU_FREQ           (300*1000*1000)
-#define RISCV_FRAMERATE           200
+#define RISCV_CPU_FREQ           (100*1000*1000)
+#define RISCV_FRAMERATE           100
 #define RISCV_DISK_SECTSIZE       512
 
 #define REG_FFVM_STDIO            0xFF000000
@@ -302,7 +302,7 @@ static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
 static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
     switch (addr) {
-    case REG_FFVM_STDIO    : return fgetc(stdin);
+    case REG_FFVM_STDIO    : return console_getc ();
     case REG_FFVM_GETCH    : return console_getch();
     case REG_FFVM_KBHIT    : return console_kbhit();
     case REG_FFVM_TICKTIME : return get_tick_count() - riscv->ffvm_start_tick;
@@ -766,6 +766,7 @@ int main(int argc, char *argv[])
     printf("rom : %s\n", rom );
     printf("disk: %s\n", disk);
 
+    console_init();
     riscv = riscv_init(rom, disk);
     if (!riscv) return 0;
 
@@ -783,5 +784,6 @@ int main(int argc, char *argv[])
     }
 
     riscv_free(riscv);
+    console_exit();
     return 0;
 }
