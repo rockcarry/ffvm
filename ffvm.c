@@ -16,6 +16,18 @@
 #define RISCV_FRAMERATE           100
 #define RISCV_DISK_SECTSIZE       512
 
+#define RISCV_CSR_MSTATUS         0x300
+#define RISCV_CSR_MISA            0x301
+#define RISCV_CSR_MEDELEG         0x302
+#define RISCV_CSR_MIDELEG         0x303
+#define RISCV_CSR_MIE             0x304
+#define RISCV_CSR_MTVEC           0x305
+#define RISCV_CSR_MCOUNTEREN      0x306
+#define RISCV_CSR_MSTATUSH        0x310
+#define RISCV_CSR_MSCRATCH        0x340
+#define RISCV_CSR_MEPC            0x341
+#define RISCV_CSR_MCAUSE          0x342
+
 #define REG_FFVM_STDIO            0xFF000000
 #define REG_FFVM_STDERR           0xFF000004
 #define REG_FFVM_GETCH            0xFF000008
@@ -35,6 +47,9 @@
 #define REG_FFVM_DISP_REFRESH_XY  0xFF000208
 #define REG_FFVM_DISP_REFRESH_WH  0xFF00020C
 #define REG_FFVM_DISP_REFRESH_DIV 0xFF000210
+#define REG_FFVM_DISP_BITBLT_ADDR 0xFF000214
+#define REG_FFVM_DISP_BITBLT_XY   0xFF000218
+#define REG_FFVM_DISP_BITBLT_WH   0xFF00021C
 
 #define REG_FFVM_AUDIO_OUT_FMT    0xFF000300
 #define REG_FFVM_AUDIO_OUT_ADDR   0xFF000304
@@ -84,6 +99,9 @@ typedef struct {
     uint32_t disp_refresh_xy;
     uint32_t disp_refresh_wh;
     uint32_t disp_refresh_div;
+    uint32_t disp_bitblt_addr;
+    uint32_t disp_bitblt_xy;
+    uint32_t disp_bitblt_wh;
     uint32_t disp_refresh_cnt;
 
     uint32_t audio_out_fmt;
@@ -314,7 +332,7 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
     case REG_FFVM_DISK_SECTOR_DAT : return fgetc(riscv->disk_fp);
     }
     if (addr >= REG_FFVM_KEYBD1 && addr <= REG_FFVM_KEYBD4) { return *(riscv->idev->key_bits + (addr - REG_FFVM_KEYBD1) / sizeof(uint32_t)); }
-    if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_REFRESH_DIV) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
+    if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_BITBLT_WH) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
     if (addr >= REG_FFVM_AUDIO_OUT_FMT && addr <= REG_FFVM_AUDIO_OUT_LOCK) return *(&riscv->audio_out_fmt + (addr - REG_FFVM_AUDIO_OUT_FMT) / sizeof(uint32_t));
     if (addr >= REG_FFVM_AUDIO_IN_FMT  && addr <= REG_FFVM_AUDIO_IN_LOCK ) return *(&riscv->audio_in_fmt  + (addr - REG_FFVM_AUDIO_IN_FMT ) / sizeof(uint32_t));
     if (addr >= REG_FFVM_STDIO) return 0;
@@ -359,7 +377,22 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
         fputc(data, riscv->disk_fp);
         break;
     }
-    if      (addr >= REG_FFVM_DISP_ADDR && addr <= REG_FFVM_DISP_REFRESH_DIV) *(&riscv->disp_addr + (addr - REG_FFVM_DISP_ADDR) / sizeof(uint32_t)) = data;
+    if (addr >= REG_FFVM_DISP_ADDR && addr <= REG_FFVM_DISP_BITBLT_WH) {
+        *(&riscv->disp_addr + (addr - REG_FFVM_DISP_ADDR) / sizeof(uint32_t)) = data;
+        if (addr == REG_FFVM_DISP_BITBLT_WH && riscv->disp_bitblt_wh) {
+            int       dx  = (riscv->disp_bitblt_xy >> 0 ) & 0xFFFF;
+            int       dy  = (riscv->disp_bitblt_xy >> 16) & 0xFFFF;
+            int       dw  = (riscv->disp_wh >> 0) & 0xFFFF;
+            int       sw  = (riscv->disp_bitblt_wh >> 0 ) & 0xFFFF;
+            int       sh  = (riscv->disp_bitblt_wh >> 16) & 0xFFFF;
+            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_bitblt_addr % MAX_MEM_SIZE);
+            uint32_t *dst = (uint32_t*)(riscv->mem + riscv->disp_addr % MAX_MEM_SIZE) + dy * dw + dx;
+            for (int i = 0; i < sh; i++) {
+                memcpy(dst, src, sw * sizeof(uint32_t));
+                dst += dw, src += sw;
+            }
+        }
+    }
     else if (addr >= REG_FFVM_AUDIO_OUT_ADDR && addr <= REG_FFVM_AUDIO_OUT_LOCK) *(&riscv->audio_out_addr + (addr - REG_FFVM_AUDIO_OUT_ADDR) / sizeof(uint32_t)) = data;
     else if (addr >= REG_FFVM_AUDIO_IN_ADDR  && addr <= REG_FFVM_AUDIO_IN_LOCK ) *(&riscv->audio_in_addr  + (addr - REG_FFVM_AUDIO_IN_ADDR ) / sizeof(uint32_t)) = data;
     if (addr >= REG_FFVM_STDIO) return;
@@ -667,12 +700,12 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
                 riscv->x[10] = handle_ecall(riscv);
             }
             break;
-        case 1: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr] = riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrw
-        case 2: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr]|= riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrs
-        case 3: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr]&=~riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrc
-        case 5: riscv->x[inst_rd] = riscv->csr[inst_csr]; riscv->csr[inst_csr] = (instruction >> 15) & 0x1f;      break; // csrrwi
-        case 6: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr]|= ((instruction >> 15) & 0x1f); riscv->x[inst_rd] = temp; break; // csrrsi
-        case 7: temp = riscv->csr[inst_csr]; riscv->csr[inst_csr]&=~((instruction >> 15) & 0x1f); riscv->x[inst_rd] = temp; break; // csrrci
+        case 1: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3) riscv->csr[inst_csr] = riscv->x[inst_rs1]; riscv->x[inst_rd] = temp;   break; // csrrw
+        case 2: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr]|= riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrs
+        case 3: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr]&=~riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrc
+        case 5: riscv->x[inst_rd] = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3) riscv->csr[inst_csr] = inst_rs1;                          break; // csrrwi
+        case 6: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr]|= inst_rs1; riscv->x[inst_rd] = temp; break; // csrrsi
+        case 7: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr]&=~inst_rs1; riscv->x[inst_rd] = temp; break; // csrrci
         }
         break;
     case 0x2f:
