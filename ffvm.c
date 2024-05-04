@@ -13,7 +13,7 @@
 #define FFVM_ADEV_MAX_BUFNUM      5
 
 #define RISCV_CPU_FREQ           (100*1000*1000)
-#define RISCV_FRAMERATE           100
+#define RISCV_FRAMERATE           150
 #define RISCV_DISK_SECTSIZE       512
 
 #define REG_FFVM_STDIO            0xFF000000
@@ -439,12 +439,12 @@ static void riscv_interrupt(RISCV *riscv, int source)
     riscv->csr[RISCV_CSR_MIP] |= (1 << source);  // update mip:source to source
 
     // update mcause
-    riscv->csr[RISCV_CSR_MCAUSE ] = (1 << 31) | source; // interrupt and source
+    riscv->csr[RISCV_CSR_MCAUSE] = (1 << 31) | source; // interrupt and source
 
     uint32_t isr = riscv->csr[RISCV_CSR_MTVEC] & ~0x3;
     int      mode= riscv->csr[RISCV_CSR_MTVEC] &  0x3;
-    if (mode == 1 && riscv->csr[RISCV_CSR_MCAUSE] & (1 << 31)) isr += 4 * (riscv->csr[RISCV_CSR_MCAUSE] & ~(1 << 31));
-    riscv->csr[RISCV_CSR_MEPC ] = riscv->pc; // update mepc
+    if (mode == 1 && (riscv->csr[RISCV_CSR_MCAUSE] & (1 << 31))) isr += 4 * (riscv->csr[RISCV_CSR_MCAUSE] & ~(1 << 31));
+    riscv->csr[RISCV_CSR_MEPC] = riscv->pc; // update mepc
     riscv->pc = isr;
 }
 
