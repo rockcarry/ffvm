@@ -47,8 +47,11 @@
 0xFF000338 读写，音频输入，lock 标记
 
 时钟接口：
-0xFF000400 只读，monotonic 时间，ms 为单位
-0xFF000404 读写，realtime 时间，s 为单位
+0xFF000400 只读，mtimecur 时间，低 32bit，ms 为单位
+0xFF000404 只读，mtimecur 时间，高 32bit
+0xFF000408 读写，mtimecmp 低 32bit
+0xFF00040C 读写，mtimecmp 高 32bit
+0xFF000410 读写，realtime 时间，s 为单位
 
 存储设备：
 0xFF000500 只读，设备扇区总数

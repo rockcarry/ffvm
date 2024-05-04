@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-uint32_t get_tick_count(void);
+uint64_t get_tick_count(void);
 
 void console_init  (void);
 void console_exit  (void);

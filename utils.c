@@ -7,7 +7,7 @@
 #include <conio.h>
 #include "utils.h"
 
-uint32_t get_tick_count(void)
+uint64_t get_tick_count(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);

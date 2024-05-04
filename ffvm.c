@@ -16,18 +16,6 @@
 #define RISCV_FRAMERATE           100
 #define RISCV_DISK_SECTSIZE       512
 
-#define RISCV_CSR_MSTATUS         0x300
-#define RISCV_CSR_MISA            0x301
-#define RISCV_CSR_MEDELEG         0x302
-#define RISCV_CSR_MIDELEG         0x303
-#define RISCV_CSR_MIE             0x304
-#define RISCV_CSR_MTVEC           0x305
-#define RISCV_CSR_MCOUNTEREN      0x306
-#define RISCV_CSR_MSTATUSH        0x310
-#define RISCV_CSR_MSCRATCH        0x340
-#define RISCV_CSR_MEPC            0x341
-#define RISCV_CSR_MCAUSE          0x342
-
 #define REG_FFVM_STDIO            0xFF000000
 #define REG_FFVM_STDERR           0xFF000004
 #define REG_FFVM_GETCH            0xFF000008
@@ -67,8 +55,11 @@
 #define REG_FFVM_AUDIO_IN_CURR    0xFF000334
 #define REG_FFVM_AUDIO_IN_LOCK    0xFF000338
 
-#define REG_FFVM_TICKTIME         0xFF000400
-#define REG_FFVM_REALTIME         0xFF000404
+#define REG_FFVM_MTIMECURL        0xFF000400
+#define REG_FFVM_MTIMECURH        0xFF000404
+#define REG_FFVM_MTIMECMPL        0xFF000408
+#define REG_FFVM_MTIMECMPH        0xFF00040C
+#define REG_FFVM_REALTIME         0xFF000410
 
 #define REG_FFVM_DISK_SECTOR_NUM  0xFF000500
 #define REG_FFVM_DISK_SECTOR_SIZE 0xFF000504
@@ -86,7 +77,7 @@ typedef struct {
 
     #define FLAG_EXIT (1 << 0)
     uint32_t flags;
-    uint32_t ffvm_start_tick;
+    uint64_t ffvm_start_tick;
     uint32_t ffvm_realtime_diff;
     void    *adev, *vdev;
     IDEV    *idev;
@@ -119,6 +110,9 @@ typedef struct {
     uint32_t audio_in_size;
     uint32_t audio_in_curr;
     uint32_t audio_in_lock;
+
+    uint64_t mtimecur;
+    uint64_t mtimecmp;
 
     FILE    *disk_fp;
 } RISCV;
@@ -198,6 +192,21 @@ static void disp_refresh(RISCV *riscv, uint32_t counter)
     if (counter % RISCV_FRAMERATE == 0) {
         char *state = (char*)vdev_get(riscv->vdev, "state", NULL);
         if (state && strcmp(state, "closed") == 0) riscv->disp_wh = 0;
+    }
+}
+
+void disp_bitblt(RISCV *riscv)
+{
+    int       dx  = (riscv->disp_bitblt_xy >> 0 ) & 0xFFFF;
+    int       dy  = (riscv->disp_bitblt_xy >> 16) & 0xFFFF;
+    int       dw  = (riscv->disp_wh >> 0) & 0xFFFF;
+    int       sw  = (riscv->disp_bitblt_wh >> 0 ) & 0xFFFF;
+    int       sh  = (riscv->disp_bitblt_wh >> 16) & 0xFFFF;
+    uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_bitblt_addr % MAX_MEM_SIZE);
+    uint32_t *dst = (uint32_t*)(riscv->mem + riscv->disp_addr % MAX_MEM_SIZE) + dy * dw + dx;
+    for (int i = 0; i < sh; i++) {
+        memcpy(dst, src, sw * sizeof(uint32_t));
+        dst += dw, src += sw;
     }
 }
 
@@ -319,12 +328,16 @@ static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
 
 static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 {
+    if (addr == REG_FFVM_MTIMECURL || addr == REG_FFVM_MTIMECURH) riscv->mtimecur = get_tick_count() - riscv->ffvm_start_tick;
     switch (addr) {
     case REG_FFVM_STDIO    : return console_getc ();
     case REG_FFVM_GETCH    : return console_getch();
     case REG_FFVM_KBHIT    : return console_kbhit();
-    case REG_FFVM_TICKTIME : return get_tick_count() - riscv->ffvm_start_tick;
     case REG_FFVM_REALTIME : return time(NULL) - riscv->ffvm_realtime_diff;
+    case REG_FFVM_MTIMECURL: return riscv->mtimecur >>  0;
+    case REG_FFVM_MTIMECURH: return riscv->mtimecur >> 32;
+    case REG_FFVM_MTIMECMPL: return riscv->mtimecmp >>  0;
+    case REG_FFVM_MTIMECMPH: return riscv->mtimecmp >> 32;
     case REG_FFVM_MOUSE_XY : return (riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16);
     case REG_FFVM_MOUSE_BTN: return (riscv->idev->mouse_btns);
     case REG_FFVM_DISK_SECTOR_NUM : return get_file_size(riscv->disk_fp) / RISCV_DISK_SECTSIZE;
@@ -350,48 +363,26 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
 static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 {
     switch (addr) {
-    case REG_FFVM_STDIO : if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
-    case REG_FFVM_STDERR: if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
-    case REG_FFVM_CLRSCR: console_clrscr(); return;
-    case REG_FFVM_GOTOXY: console_gotoxy((data >> 0) & 0xFFFF, (data >> 16) & 0xFFFF); return;
-    case REG_FFVM_DISP_WH:
-        disp_init(riscv, data);
-        break;
-    case REG_FFVM_AUDIO_OUT_FMT:
-        audio_init(riscv, data, 0);
-        break;
-    case REG_FFVM_AUDIO_IN_FMT:
-        audio_init(riscv, data, 1);
-        break;
+    case REG_FFVM_STDIO  : if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
+    case REG_FFVM_STDERR : if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
+    case REG_FFVM_CLRSCR : console_clrscr(); return;
+    case REG_FFVM_GOTOXY : console_gotoxy((data >> 0) & 0xFFFF, (data >> 16) & 0xFFFF); return;
+    case REG_FFVM_DISP_WH: disp_init(riscv, data); break;
+    case REG_FFVM_AUDIO_OUT_FMT: audio_init(riscv, data, 0); break;
+    case REG_FFVM_AUDIO_IN_FMT : audio_init(riscv, data, 1); break;
     case REG_FFVM_AUDIO_IN_LOCK:
         if (data) pthread_mutex_lock(&riscv->lock);
         else    pthread_mutex_unlock(&riscv->lock);
         break;
-    case REG_FFVM_REALTIME:
-        riscv->ffvm_realtime_diff = time(NULL) - data;
-        break;
-    case REG_FFVM_DISK_SECTOR_IDX:
-        fseeko(riscv->disk_fp, data * RISCV_DISK_SECTSIZE, SEEK_SET);
-        break;
-    case REG_FFVM_DISK_SECTOR_DAT:
-        fputc(data, riscv->disk_fp);
-        break;
+    case REG_FFVM_REALTIME : riscv->ffvm_realtime_diff = time(NULL) - data; return;
+    case REG_FFVM_MTIMECMPL: ((uint32_t*)&riscv->mtimecmp)[0] = data; return;
+    case REG_FFVM_MTIMECMPH: ((uint32_t*)&riscv->mtimecmp)[1] = data; return;
+    case REG_FFVM_DISK_SECTOR_IDX: fseeko(riscv->disk_fp, data * RISCV_DISK_SECTSIZE, SEEK_SET); return;
+    case REG_FFVM_DISK_SECTOR_DAT: fputc(data, riscv->disk_fp); return;
     }
     if (addr >= REG_FFVM_DISP_ADDR && addr <= REG_FFVM_DISP_BITBLT_WH) {
         *(&riscv->disp_addr + (addr - REG_FFVM_DISP_ADDR) / sizeof(uint32_t)) = data;
-        if (addr == REG_FFVM_DISP_BITBLT_WH && riscv->disp_bitblt_wh) {
-            int       dx  = (riscv->disp_bitblt_xy >> 0 ) & 0xFFFF;
-            int       dy  = (riscv->disp_bitblt_xy >> 16) & 0xFFFF;
-            int       dw  = (riscv->disp_wh >> 0) & 0xFFFF;
-            int       sw  = (riscv->disp_bitblt_wh >> 0 ) & 0xFFFF;
-            int       sh  = (riscv->disp_bitblt_wh >> 16) & 0xFFFF;
-            uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_bitblt_addr % MAX_MEM_SIZE);
-            uint32_t *dst = (uint32_t*)(riscv->mem + riscv->disp_addr % MAX_MEM_SIZE) + dy * dw + dx;
-            for (int i = 0; i < sh; i++) {
-                memcpy(dst, src, sw * sizeof(uint32_t));
-                dst += dw, src += sw;
-            }
-        }
+        if (addr == REG_FFVM_DISP_BITBLT_WH && riscv->disp_bitblt_wh) disp_bitblt(riscv);
     }
     else if (addr >= REG_FFVM_AUDIO_OUT_ADDR && addr <= REG_FFVM_AUDIO_OUT_LOCK) *(&riscv->audio_out_addr + (addr - REG_FFVM_AUDIO_OUT_ADDR) / sizeof(uint32_t)) = data;
     else if (addr >= REG_FFVM_AUDIO_IN_ADDR  && addr <= REG_FFVM_AUDIO_IN_LOCK ) *(&riscv->audio_in_addr  + (addr - REG_FFVM_AUDIO_IN_ADDR ) / sizeof(uint32_t)) = data;
@@ -418,6 +409,43 @@ static uint32_t handle_ecall(RISCV *riscv)
     case 93: riscv->flags |= FLAG_EXIT; return 0; // sys_exit
     default: return 0;
     }
+}
+
+#define RISCV_CSR_MSTATUS         0x300
+#define RISCV_CSR_MISA            0x301
+#define RISCV_CSR_MIE             0x304
+#define RISCV_CSR_MTVEC           0x305
+#define RISCV_CSR_MSCRATCH        0x340
+#define RISCV_CSR_MEPC            0x341
+#define RISCV_CSR_MCAUSE          0x342
+#define RISCV_CSR_MTVAL           0x343
+#define RISCV_CSR_MIP             0x344
+
+#define INTR_MACHINE_SOFTWARE     3
+#define INTR_MACHINE_TIMER        7
+#define INTR_MACHINE_EXTERNAL     11
+
+static void riscv_interrupt(RISCV *riscv, int source)
+{
+    if (!(riscv->csr[RISCV_CSR_MSTATUS] & (1 << 3)) ) return; // if mstatus:mie disabled
+    if (!(riscv->csr[RISCV_CSR_MIE] & (1 << source))) return; // if mie:source disabled
+
+    //+ update mstatus:mpie, mstatus:mpie = mstatus:mie
+    riscv->csr[RISCV_CSR_MSTATUS] &= ~(1 << 7);
+    riscv->csr[RISCV_CSR_MSTATUS] |= (riscv->csr[RISCV_CSR_MSTATUS] & (1 << 3)) << 4;
+    //- update mstatus:mpie, mstatus:mpie = mstatus:mie
+
+    riscv->csr[RISCV_CSR_MSTATUS] &= ~(1 << 3 ); // update mstatus:mie to 0
+    riscv->csr[RISCV_CSR_MIP] |= (1 << source);  // update mip:source to source
+
+    // update mcause
+    riscv->csr[RISCV_CSR_MCAUSE ] = (1 << 31) | source; // interrupt and source
+
+    uint32_t isr = riscv->csr[RISCV_CSR_MTVEC] & ~0x3;
+    int      mode= riscv->csr[RISCV_CSR_MTVEC] &  0x3;
+    if (mode == 1 && riscv->csr[RISCV_CSR_MCAUSE] & (1 << 31)) isr += 4 * (riscv->csr[RISCV_CSR_MCAUSE] & ~(1 << 31));
+    riscv->csr[RISCV_CSR_MEPC ] = riscv->pc; // update mepc
+    riscv->pc = isr;
 }
 
 static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
@@ -554,16 +582,16 @@ static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
 
 static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
 {
-    const uint32_t inst_opcode = (instruction >> 0) & 0x7f;
-    const uint32_t inst_rd     = (instruction >> 7) & 0x1f;
-    const uint32_t inst_funct3 = (instruction >>12) & 0x07;
-    const uint32_t inst_rs1    = (instruction >>15) & 0x1f;
-    const uint32_t inst_rs2    = (instruction >>20) & 0x1f;
-    const uint32_t inst_funct7 = (instruction >>25) & 0x7f;
-    const uint32_t inst_imm12i = (instruction >>20) & 0xfff;
-    const uint32_t inst_imm12s =((instruction >>20) & (0x7f << 5)) | ((instruction >> 7) & 0x1f);
-    const uint32_t inst_imm13b =((instruction >>19) & (0x1  <<12)) | ((instruction << 4) & (0x1 << 11))
-                               |((instruction >>20) & (0x3f << 5)) | ((instruction >> 7) & (0xf <<  1));
+    const uint32_t inst_opcode = (instruction >>  0) & 0x7f;
+    const uint32_t inst_rd     = (instruction >>  7) & 0x1f;
+    const uint32_t inst_funct3 = (instruction >> 12) & 0x07;
+    const uint32_t inst_rs1    = (instruction >> 15) & 0x1f;
+    const uint32_t inst_rs2    = (instruction >> 20) & 0x1f;
+    const uint32_t inst_funct7 = (instruction >> 25) & 0x7f;
+    const uint32_t inst_imm12i = (instruction >> 20);
+    const uint32_t inst_imm12s =((instruction >> 20) & (0x7f << 5)) | ((instruction >> 7) & 0x1f);
+    const uint32_t inst_imm13b =((instruction >> 19) & (0x1  <<12)) | ((instruction << 4) & (0x1 << 11))
+                               |((instruction >> 20) & (0x3f << 5)) | ((instruction >> 7) & (0xf <<  1));
     const uint32_t inst_imm20u = instruction & (0xfffff << 12);
     const uint32_t inst_imm21j =((instruction >> 11) & (1 << 20)) | (instruction & (0xff << 12))
                                |((instruction >> 9 ) & (1 << 11)) | ((instruction >> 20) & (0x3ff << 1));
@@ -694,10 +722,17 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
     case 0x73:
         switch (inst_funct3) {
         case 0:
-            if (instruction & (1 << 20)) { // ebreak;
-                // todo...
-            } else { // ecall
+            if (inst_csr == 0) { // ecall
                 riscv->x[10] = handle_ecall(riscv);
+            } else if (inst_csr == 1) { // ebreak
+            } else if (inst_csr == 0x302) { // mret
+                bflag = 1;
+                riscv->pc = riscv->csr[RISCV_CSR_MEPC];
+                //+ restore mstatus:mie, mstatus:mie = mstatus:mpie
+                riscv->csr[RISCV_CSR_MSTATUS] &=~(1 << 3);
+                riscv->csr[RISCV_CSR_MSTATUS] |= (riscv->csr[RISCV_CSR_MSTATUS] & (1 << 7)) >> 4;
+                //- restore mstatus:mie, mstatus:mie = mstatus:mpie
+                riscv->csr[RISCV_CSR_MSTATUS] |= (1 << 7);
             }
             break;
         case 1: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3) riscv->csr[inst_csr] = riscv->x[inst_rs1]; riscv->x[inst_rd] = temp;   break; // csrrw
@@ -757,8 +792,9 @@ RISCV* riscv_init(char *rom, char *disk)
     FILE  *fp    = NULL;
     RISCV *riscv = calloc(1, sizeof(RISCV));
     if (!riscv) return NULL;
-    riscv->csr[0x301] = (1 << 8) | (1 << 12) | (1 << 0) | (1 << 2); // misa rv32imac
+    riscv->csr[RISCV_CSR_MISA] = (1 << 8) | (1 << 12) | (1 << 0) | (1 << 2); // misa rv32imac
     riscv->ffvm_start_tick = get_tick_count();
+    riscv->mtimecmp = 0xFFFFFFFFFFFFFFFFull;
     fp = fopen(rom, "rb");
     if (fp) {
         fread(riscv->mem, 1, sizeof(riscv->mem), fp);
@@ -800,16 +836,20 @@ int main(int argc, char *argv[])
     printf("disk: %s\n", disk);
 
     console_init();
-    riscv = riscv_init(rom, disk);
-    if (!riscv) return 0;
+    if (!(riscv = riscv_init(rom, disk))) return 0;
 
+    next_tick = get_tick_count();
     while (!(riscv->flags & (FLAG_EXIT))) {
-        if (!next_tick) next_tick = get_tick_count();
         next_tick += 1000 / RISCV_FRAMERATE;
         for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) riscv_run(riscv);
         disp_refresh(riscv, run_counter  );
         audio_update(riscv, run_counter++);
-        sleep_tick = next_tick - get_tick_count();
+
+        uint64_t cur_tick = get_tick_count();
+        riscv->mtimecur = cur_tick - riscv->ffvm_start_tick;
+        if (riscv->mtimecur >= riscv->mtimecmp) riscv_interrupt(riscv, INTR_MACHINE_TIMER);
+
+        sleep_tick = next_tick - (uint32_t)cur_tick;
         if (riscv->audio_in_lock) pthread_mutex_unlock(&riscv->lock);
         if (sleep_tick > 0) usleep(sleep_tick * 1000);
         if (riscv->audio_in_lock) pthread_mutex_lock  (&riscv->lock);
