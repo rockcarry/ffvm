@@ -9,9 +9,13 @@
 
 uint64_t get_tick_count(void)
 {
+#ifdef WIN32
+    return GetTickCount64();
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+#endif
 }
 
 static pthread_mutex_t s_lock = (pthread_mutex_t)NULL;
