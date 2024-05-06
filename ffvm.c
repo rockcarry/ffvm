@@ -12,7 +12,7 @@
 
 #define FFVM_ADEV_MAX_BUFNUM      5
 
-#define RISCV_CPU_FREQ           (100*1000*1000)
+#define RISCV_CPU_FREQ_MAX       (100*1000*1000)
 #define RISCV_FRAMERATE           100
 #define RISCV_DISK_SECTSIZE       512
 
@@ -66,6 +66,8 @@
 #define REG_FFVM_DISK_SECTOR_IDX  0xFF000508
 #define REG_FFVM_DISK_SECTOR_DAT  0xFF00050C
 
+#define REG_FFVM_CPU_FREQ         0xFF000600
+
 typedef struct {
     uint32_t pc;
     uint32_t x[32];
@@ -76,7 +78,7 @@ typedef struct {
     uint8_t  mem[MAX_MEM_SIZE];
 
     #define FLAG_EXIT (1 << 0)
-    uint32_t flags;
+    uint32_t flags, freq;
     uint64_t ffvm_start_tick;
     uint32_t ffvm_realtime_diff;
     void    *adev, *vdev;
@@ -330,7 +332,8 @@ static void riscv_interrupt(RISCV *riscv, int source)
     int      mode= riscv->csr[RISCV_CSR_MTVEC] &  0x3;
     if (mode == 1 && (riscv->csr[RISCV_CSR_MCAUSE] & (1 << 31))) isr += 4 * (riscv->csr[RISCV_CSR_MCAUSE] & ~(1 << 31));
     riscv->csr[RISCV_CSR_MEPC] = riscv->pc; // update mepc
-    riscv->pc = isr;
+    riscv->pc   = isr;
+    riscv->freq = RISCV_CPU_FREQ_MAX;
 }
 
 static uint8_t riscv_memr8(RISCV *riscv, uint32_t addr)
@@ -391,6 +394,7 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
     case REG_FFVM_DISK_SECTOR_NUM : return get_file_size(riscv->disk_fp) / RISCV_DISK_SECTSIZE;
     case REG_FFVM_DISK_SECTOR_SIZE: return RISCV_DISK_SECTSIZE;
     case REG_FFVM_DISK_SECTOR_DAT : return fgetc(riscv->disk_fp);
+    case REG_FFVM_CPU_FREQ : return riscv->freq;
     }
     if (addr >= REG_FFVM_KEYBD1 && addr <= REG_FFVM_KEYBD4) { return *(riscv->idev->key_bits + (addr - REG_FFVM_KEYBD1) / sizeof(uint32_t)); }
     if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_BITBLT_WH) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
@@ -430,6 +434,7 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
     case REG_FFVM_MTIMECMPH: ((uint32_t*)&riscv->mtimecmp)[1] = data; return;
     case REG_FFVM_DISK_SECTOR_IDX: fseeko(riscv->disk_fp, data * RISCV_DISK_SECTSIZE, SEEK_SET); return;
     case REG_FFVM_DISK_SECTOR_DAT: fputc(data, riscv->disk_fp); return;
+    case REG_FFVM_CPU_FREQ: riscv->freq = data < RISCV_CPU_FREQ_MAX ? data : RISCV_CPU_FREQ_MAX; return;
     }
     if (addr >= REG_FFVM_DISP_ADDR && addr <= REG_FFVM_DISP_BITBLT_WH) {
         *(&riscv->disp_addr + (addr - REG_FFVM_DISP_ADDR) / sizeof(uint32_t)) = data;
@@ -799,6 +804,7 @@ RISCV* riscv_init(char *rom, char *disk)
     riscv->csr[RISCV_CSR_MISA] = (1 << 8) | (1 << 12) | (1 << 0) | (1 << 2); // misa rv32imac
     riscv->ffvm_start_tick = get_tick_count();
     riscv->mtimecmp = 0xFFFFFFFFFFFFFFFFull;
+    riscv->freq     = RISCV_CPU_FREQ_MAX;
     fp = fopen(rom, "rb");
     if (fp) {
         fread(riscv->mem, 1, sizeof(riscv->mem), fp);
@@ -846,7 +852,7 @@ int main(int argc, char *argv[])
     next_tick = (uint32_t)get_tick_count();
     while (!(riscv->flags & (FLAG_EXIT))) {
         for (j = 0; j < 2; j++) {
-            for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE / 2; i++) riscv_run(riscv);
+            for (i = 0; i < riscv->freq / RISCV_FRAMERATE / 2; i++) riscv_run(riscv);
             riscv->mtimecur = get_tick_count() - riscv->ffvm_start_tick;
             if (riscv->mtimecur >= riscv->mtimecmp) riscv_interrupt(riscv, INTR_MACHINE_TIMER);
         }
