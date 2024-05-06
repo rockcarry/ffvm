@@ -13,7 +13,7 @@
 #define FFVM_ADEV_MAX_BUFNUM      5
 
 #define RISCV_CPU_FREQ           (100*1000*1000)
-#define RISCV_FRAMERATE           150
+#define RISCV_FRAMERATE           100
 #define RISCV_DISK_SECTSIZE       512
 
 #define REG_FFVM_STDIO            0xFF000000
@@ -195,7 +195,7 @@ static void disp_refresh(RISCV *riscv, uint32_t counter)
     }
 }
 
-void disp_bitblt(RISCV *riscv)
+static void disp_bitblt(RISCV *riscv)
 {
     int       dx  = (riscv->disp_bitblt_xy >> 0 ) & 0xFFFF;
     int       dy  = (riscv->disp_bitblt_xy >> 16) & 0xFFFF;
@@ -296,121 +296,6 @@ static void audio_update(RISCV *riscv, uint32_t counter)
     }
 }
 
-static uint8_t riscv_memr8(RISCV *riscv, uint32_t addr)
-{
-    return *(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
-}
-
-static void riscv_memw8(RISCV *riscv, uint32_t addr, uint8_t data)
-{
-    *(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
-}
-
-static uint16_t riscv_memr16(RISCV *riscv, uint32_t addr)
-{
-    if ((addr & 0x1) == 0) {
-        return *(uint16_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
-    } else {
-        return (riscv->mem[(addr + 0) & (MAX_MEM_SIZE - 1)] << 0)
-             | (riscv->mem[(addr + 1) & (MAX_MEM_SIZE - 1)] << 8);
-    }
-}
-
-static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
-{
-    if ((addr & 0x1) == 0) {
-        *(uint16_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
-    } else {
-        riscv->mem[(addr + 0) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >> 0);
-        riscv->mem[(addr + 1) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >> 8);
-    }
-}
-
-static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
-{
-    if (addr == REG_FFVM_MTIMECURL || addr == REG_FFVM_MTIMECURH) riscv->mtimecur = get_tick_count() - riscv->ffvm_start_tick;
-    switch (addr) {
-    case REG_FFVM_STDIO    : return console_getc ();
-    case REG_FFVM_GETCH    : return console_getch();
-    case REG_FFVM_KBHIT    : return console_kbhit();
-    case REG_FFVM_REALTIME : return time(NULL) - riscv->ffvm_realtime_diff;
-    case REG_FFVM_MTIMECURL: return riscv->mtimecur >>  0;
-    case REG_FFVM_MTIMECURH: return riscv->mtimecur >> 32;
-    case REG_FFVM_MTIMECMPL: return riscv->mtimecmp >>  0;
-    case REG_FFVM_MTIMECMPH: return riscv->mtimecmp >> 32;
-    case REG_FFVM_MOUSE_XY : return (riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16);
-    case REG_FFVM_MOUSE_BTN: return (riscv->idev->mouse_btns);
-    case REG_FFVM_DISK_SECTOR_NUM : return get_file_size(riscv->disk_fp) / RISCV_DISK_SECTSIZE;
-    case REG_FFVM_DISK_SECTOR_SIZE: return RISCV_DISK_SECTSIZE;
-    case REG_FFVM_DISK_SECTOR_DAT : return fgetc(riscv->disk_fp);
-    }
-    if (addr >= REG_FFVM_KEYBD1 && addr <= REG_FFVM_KEYBD4) { return *(riscv->idev->key_bits + (addr - REG_FFVM_KEYBD1) / sizeof(uint32_t)); }
-    if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_BITBLT_WH) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
-    if (addr >= REG_FFVM_AUDIO_OUT_FMT && addr <= REG_FFVM_AUDIO_OUT_LOCK) return *(&riscv->audio_out_fmt + (addr - REG_FFVM_AUDIO_OUT_FMT) / sizeof(uint32_t));
-    if (addr >= REG_FFVM_AUDIO_IN_FMT  && addr <= REG_FFVM_AUDIO_IN_LOCK ) return *(&riscv->audio_in_fmt  + (addr - REG_FFVM_AUDIO_IN_FMT ) / sizeof(uint32_t));
-    if (addr >= REG_FFVM_STDIO) return 0;
-
-    if ((addr & 0x3) == 0) {
-        return *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
-    } else {
-        return (riscv->mem[(addr + 0) & (MAX_MEM_SIZE - 1)] << 0)
-             | (riscv->mem[(addr + 1) & (MAX_MEM_SIZE - 1)] << 8)
-             | (riscv->mem[(addr + 2) & (MAX_MEM_SIZE - 1)] <<16)
-             | (riscv->mem[(addr + 3) & (MAX_MEM_SIZE - 1)] <<24);
-    }
-}
-
-static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
-{
-    switch (addr) {
-    case REG_FFVM_STDIO  : if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
-    case REG_FFVM_STDERR : if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
-    case REG_FFVM_CLRSCR : console_clrscr(); return;
-    case REG_FFVM_GOTOXY : console_gotoxy((data >> 0) & 0xFFFF, (data >> 16) & 0xFFFF); return;
-    case REG_FFVM_DISP_WH: disp_init(riscv, data); break;
-    case REG_FFVM_AUDIO_OUT_FMT: audio_init(riscv, data, 0); break;
-    case REG_FFVM_AUDIO_IN_FMT : audio_init(riscv, data, 1); break;
-    case REG_FFVM_AUDIO_IN_LOCK:
-        if (data) pthread_mutex_lock(&riscv->lock);
-        else    pthread_mutex_unlock(&riscv->lock);
-        break;
-    case REG_FFVM_REALTIME : riscv->ffvm_realtime_diff = time(NULL) - data; return;
-    case REG_FFVM_MTIMECMPL: ((uint32_t*)&riscv->mtimecmp)[0] = data; return;
-    case REG_FFVM_MTIMECMPH: ((uint32_t*)&riscv->mtimecmp)[1] = data; return;
-    case REG_FFVM_DISK_SECTOR_IDX: fseeko(riscv->disk_fp, data * RISCV_DISK_SECTSIZE, SEEK_SET); return;
-    case REG_FFVM_DISK_SECTOR_DAT: fputc(data, riscv->disk_fp); return;
-    }
-    if (addr >= REG_FFVM_DISP_ADDR && addr <= REG_FFVM_DISP_BITBLT_WH) {
-        *(&riscv->disp_addr + (addr - REG_FFVM_DISP_ADDR) / sizeof(uint32_t)) = data;
-        if (addr == REG_FFVM_DISP_BITBLT_WH && riscv->disp_bitblt_wh) disp_bitblt(riscv);
-    }
-    else if (addr >= REG_FFVM_AUDIO_OUT_ADDR && addr <= REG_FFVM_AUDIO_OUT_LOCK) *(&riscv->audio_out_addr + (addr - REG_FFVM_AUDIO_OUT_ADDR) / sizeof(uint32_t)) = data;
-    else if (addr >= REG_FFVM_AUDIO_IN_ADDR  && addr <= REG_FFVM_AUDIO_IN_LOCK ) *(&riscv->audio_in_addr  + (addr - REG_FFVM_AUDIO_IN_ADDR ) / sizeof(uint32_t)) = data;
-    if (addr >= REG_FFVM_STDIO) return;
-
-    if ((addr & 0x3) == 0) {
-        *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
-    } else {
-        riscv->mem[(addr + 0) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >> 0);
-        riscv->mem[(addr + 1) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >> 8);
-        riscv->mem[(addr + 2) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >>16);
-        riscv->mem[(addr + 3) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >>24);
-    }
-}
-
-static int32_t signed_extend(uint32_t a, int size)
-{
-    return (a & (1 << (size - 1))) ? (a | ~((1 << size) - 1)) : a;
-}
-
-static uint32_t handle_ecall(RISCV *riscv)
-{
-    switch (riscv->x[17]) {
-    case 93: riscv->flags |= FLAG_EXIT; return 0; // sys_exit
-    default: return 0;
-    }
-}
-
 #define RISCV_CSR_MSTATUS         0x300
 #define RISCV_CSR_MISA            0x301
 #define RISCV_CSR_MIE             0x304
@@ -446,6 +331,125 @@ static void riscv_interrupt(RISCV *riscv, int source)
     if (mode == 1 && (riscv->csr[RISCV_CSR_MCAUSE] & (1 << 31))) isr += 4 * (riscv->csr[RISCV_CSR_MCAUSE] & ~(1 << 31));
     riscv->csr[RISCV_CSR_MEPC] = riscv->pc; // update mepc
     riscv->pc = isr;
+}
+
+static uint8_t riscv_memr8(RISCV *riscv, uint32_t addr)
+{
+    return *(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
+}
+
+static void riscv_memw8(RISCV *riscv, uint32_t addr, uint8_t data)
+{
+    *(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
+}
+
+static uint16_t riscv_memr16(RISCV *riscv, uint32_t addr)
+{
+    if ((addr & 0x1) == 0) {
+        return *(uint16_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
+    } else {
+        return (riscv->mem[(addr + 0) & (MAX_MEM_SIZE - 1)] << 0)
+             | (riscv->mem[(addr + 1) & (MAX_MEM_SIZE - 1)] << 8);
+    }
+}
+
+static void riscv_memw16(RISCV *riscv, uint32_t addr, uint16_t data)
+{
+    if ((addr & 0x1) == 0) {
+        *(uint16_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
+    } else {
+        riscv->mem[(addr + 0) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >> 0);
+        riscv->mem[(addr + 1) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >> 8);
+    }
+}
+
+static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
+{
+    if (addr < REG_FFVM_STDIO) {
+        if ((addr & 0x3) == 0) {
+            return *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1)));
+        } else {
+            return (riscv->mem[(addr + 0) & (MAX_MEM_SIZE - 1)] << 0)
+                 | (riscv->mem[(addr + 1) & (MAX_MEM_SIZE - 1)] << 8)
+                 | (riscv->mem[(addr + 2) & (MAX_MEM_SIZE - 1)] <<16)
+                 | (riscv->mem[(addr + 3) & (MAX_MEM_SIZE - 1)] <<24);
+        }
+    }
+
+    if (addr == REG_FFVM_MTIMECURL || addr == REG_FFVM_MTIMECURH) riscv->mtimecur = get_tick_count() - riscv->ffvm_start_tick;
+    switch (addr) {
+    case REG_FFVM_STDIO    : return console_getc ();
+    case REG_FFVM_GETCH    : return console_getch();
+    case REG_FFVM_KBHIT    : return console_kbhit();
+    case REG_FFVM_REALTIME : return time(NULL) - riscv->ffvm_realtime_diff;
+    case REG_FFVM_MTIMECURL: return riscv->mtimecur >>  0;
+    case REG_FFVM_MTIMECURH: return riscv->mtimecur >> 32;
+    case REG_FFVM_MTIMECMPL: return riscv->mtimecmp >>  0;
+    case REG_FFVM_MTIMECMPH: return riscv->mtimecmp >> 32;
+    case REG_FFVM_MOUSE_XY : return (riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16);
+    case REG_FFVM_MOUSE_BTN: return (riscv->idev->mouse_btns);
+    case REG_FFVM_DISK_SECTOR_NUM : return get_file_size(riscv->disk_fp) / RISCV_DISK_SECTSIZE;
+    case REG_FFVM_DISK_SECTOR_SIZE: return RISCV_DISK_SECTSIZE;
+    case REG_FFVM_DISK_SECTOR_DAT : return fgetc(riscv->disk_fp);
+    }
+    if (addr >= REG_FFVM_KEYBD1 && addr <= REG_FFVM_KEYBD4) { return *(riscv->idev->key_bits + (addr - REG_FFVM_KEYBD1) / sizeof(uint32_t)); }
+    if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_BITBLT_WH) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
+    if (addr >= REG_FFVM_AUDIO_OUT_FMT && addr <= REG_FFVM_AUDIO_OUT_LOCK) return *(&riscv->audio_out_fmt + (addr - REG_FFVM_AUDIO_OUT_FMT) / sizeof(uint32_t));
+    if (addr >= REG_FFVM_AUDIO_IN_FMT  && addr <= REG_FFVM_AUDIO_IN_LOCK ) return *(&riscv->audio_in_fmt  + (addr - REG_FFVM_AUDIO_IN_FMT ) / sizeof(uint32_t));
+    return 0;
+}
+
+static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
+{
+    if (addr < REG_FFVM_STDIO) {
+        if ((addr & 0x3) == 0) {
+            *(uint32_t*)(riscv->mem + (addr & (MAX_MEM_SIZE - 1))) = data;
+        } else {
+            riscv->mem[(addr + 0) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >> 0);
+            riscv->mem[(addr + 1) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >> 8);
+            riscv->mem[(addr + 2) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >>16);
+            riscv->mem[(addr + 3) & (MAX_MEM_SIZE - 1)] = (uint8_t)(data >>24);
+        }
+        return;
+    }
+
+    switch (addr) {
+    case REG_FFVM_STDIO  : if (data == (uint32_t)-1) fflush(stdout); else fputc(data, stdout); return;
+    case REG_FFVM_STDERR : if (data == (uint32_t)-1) fflush(stderr); else fputc(data, stderr); return;
+    case REG_FFVM_CLRSCR : console_clrscr(); return;
+    case REG_FFVM_GOTOXY : console_gotoxy((data >> 0) & 0xFFFF, (data >> 16) & 0xFFFF); return;
+    case REG_FFVM_DISP_WH: disp_init(riscv, data); break;
+    case REG_FFVM_AUDIO_OUT_FMT: audio_init(riscv, data, 0); break;
+    case REG_FFVM_AUDIO_IN_FMT : audio_init(riscv, data, 1); break;
+    case REG_FFVM_AUDIO_IN_LOCK:
+        if (data) pthread_mutex_lock(&riscv->lock);
+        else    pthread_mutex_unlock(&riscv->lock);
+        break;
+    case REG_FFVM_REALTIME : riscv->ffvm_realtime_diff = time(NULL) - data; return;
+    case REG_FFVM_MTIMECMPL: ((uint32_t*)&riscv->mtimecmp)[0] = data; return;
+    case REG_FFVM_MTIMECMPH: ((uint32_t*)&riscv->mtimecmp)[1] = data; return;
+    case REG_FFVM_DISK_SECTOR_IDX: fseeko(riscv->disk_fp, data * RISCV_DISK_SECTSIZE, SEEK_SET); return;
+    case REG_FFVM_DISK_SECTOR_DAT: fputc(data, riscv->disk_fp); return;
+    }
+    if (addr >= REG_FFVM_DISP_ADDR && addr <= REG_FFVM_DISP_BITBLT_WH) {
+        *(&riscv->disp_addr + (addr - REG_FFVM_DISP_ADDR) / sizeof(uint32_t)) = data;
+        if (addr == REG_FFVM_DISP_BITBLT_WH && riscv->disp_bitblt_wh) disp_bitblt(riscv);
+    }
+    else if (addr >= REG_FFVM_AUDIO_OUT_ADDR && addr <= REG_FFVM_AUDIO_OUT_LOCK) *(&riscv->audio_out_addr + (addr - REG_FFVM_AUDIO_OUT_ADDR) / sizeof(uint32_t)) = data;
+    else if (addr >= REG_FFVM_AUDIO_IN_ADDR  && addr <= REG_FFVM_AUDIO_IN_LOCK ) *(&riscv->audio_in_addr  + (addr - REG_FFVM_AUDIO_IN_ADDR ) / sizeof(uint32_t)) = data;
+}
+
+static int32_t signed_extend(uint32_t a, int size)
+{
+    return (a & (1 << (size - 1))) ? (a | ~((1 << size) - 1)) : a;
+}
+
+static uint32_t handle_ecall(RISCV *riscv)
+{
+    switch (riscv->x[17]) {
+    case 93: riscv->flags |= FLAG_EXIT; return 0; // sys_exit
+    default: return 0;
+    }
 }
 
 static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
@@ -825,31 +829,32 @@ int main(int argc, char *argv[])
     char *rom  = "test.rom";
     char *disk = "disk.img";
     uint32_t next_tick = 0, run_counter = 0;
-    int32_t  sleep_tick, i;
+    int32_t  sleep_tick, i, j;
     RISCV   *riscv = NULL;
 
     for (i = 1; i < argc; i++) {
-        if (strstr(argv[i], "--rom=" ) == argv[i]) rom  = argv[i] + sizeof("--rom=" ) - 1;
         if (strstr(argv[i], "--disk=") == argv[i]) disk = argv[i] + sizeof("--disk=") - 1;
+        else rom = argv[i];
     }
+
     printf("rom : %s\n", rom );
     printf("disk: %s\n", disk);
 
     console_init();
     if (!(riscv = riscv_init(rom, disk))) return 0;
 
-    next_tick = get_tick_count();
+    next_tick = (uint32_t)get_tick_count();
     while (!(riscv->flags & (FLAG_EXIT))) {
-        next_tick += 1000 / RISCV_FRAMERATE;
-        for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE; i++) riscv_run(riscv);
+        for (j = 0; j < 2; j++) {
+            for (i = 0; i < RISCV_CPU_FREQ / RISCV_FRAMERATE / 2; i++) riscv_run(riscv);
+            riscv->mtimecur = get_tick_count() - riscv->ffvm_start_tick;
+            if (riscv->mtimecur >= riscv->mtimecmp) riscv_interrupt(riscv, INTR_MACHINE_TIMER);
+        }
         disp_refresh(riscv, run_counter  );
         audio_update(riscv, run_counter++);
 
-        uint64_t cur_tick = get_tick_count();
-        riscv->mtimecur = cur_tick - riscv->ffvm_start_tick;
-        if (riscv->mtimecur >= riscv->mtimecmp) riscv_interrupt(riscv, INTR_MACHINE_TIMER);
-
-        sleep_tick = next_tick - (uint32_t)cur_tick;
+        next_tick += 1000 / RISCV_FRAMERATE;
+        sleep_tick = (int32_t)next_tick - (int32_t)get_tick_count();
         if (riscv->audio_in_lock) pthread_mutex_unlock(&riscv->lock);
         if (sleep_tick > 0) usleep(sleep_tick * 1000);
         if (riscv->audio_in_lock) pthread_mutex_lock  (&riscv->lock);
