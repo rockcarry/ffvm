@@ -744,12 +744,12 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
                 riscv->csr[RISCV_CSR_MSTATUS] |= (1 << 7);
             }
             break;
-        case 1: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3) riscv->csr[inst_csr] = riscv->x[inst_rs1]; riscv->x[inst_rd] = temp;   break; // csrrw
-        case 2: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr]|= riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrs
-        case 3: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr]&=~riscv->x[inst_rs1]; riscv->x[inst_rd] = temp; break; // csrrc
-        case 5: riscv->x[inst_rd] = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3) riscv->csr[inst_csr] = inst_rs1;                          break; // csrrwi
-        case 6: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr]|= inst_rs1; riscv->x[inst_rd] = temp; break; // csrrsi
-        case 7: temp = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr]&=~inst_rs1; riscv->x[inst_rd] = temp; break; // csrrci
+        case 1: riscv->x[inst_rd] = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3) riscv->csr[inst_csr] = riscv->x[inst_rs1]; break; // csrrw
+        case 2: riscv->x[inst_rd] = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr] |= riscv->x[inst_rs1]; break; // csrrs
+        case 3: riscv->x[inst_rd] = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr] &=~riscv->x[inst_rs1]; break; // csrrc
+        case 5: riscv->x[inst_rd] = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3) riscv->csr[inst_csr] = inst_rs1;                        break; // csrrwi
+        case 6: riscv->x[inst_rd] = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr] |= inst_rs1; break; // csrrsi
+        case 7: riscv->x[inst_rd] = riscv->csr[inst_csr]; if ((inst_csr >> 10) != 3 && inst_rs1) riscv->csr[inst_csr] &=~inst_rs1; break; // csrrci
         }
         break;
     case 0x2f:
