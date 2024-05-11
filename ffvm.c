@@ -332,8 +332,7 @@ static void riscv_interrupt(RISCV *riscv, int source)
     int      mode= riscv->csr[RISCV_CSR_MTVEC] &  0x3;
     if (mode == 1 && (riscv->csr[RISCV_CSR_MCAUSE] & (1 << 31))) isr += 4 * (riscv->csr[RISCV_CSR_MCAUSE] & ~(1 << 31));
     riscv->csr[RISCV_CSR_MEPC] = riscv->pc; // update mepc
-    riscv->pc   = isr;
-    riscv->freq = RISCV_CPU_FREQ_MAX;
+    riscv->pc = isr;
 }
 
 static uint8_t riscv_memr8(RISCV *riscv, uint32_t addr)
