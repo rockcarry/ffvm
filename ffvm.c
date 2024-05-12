@@ -802,6 +802,7 @@ RISCV* riscv_init(char *rom, char *disk)
     if (!riscv) return NULL;
     riscv->csr[RISCV_CSR_MISA] = (1 << 8) | (1 << 12) | (1 << 0) | (1 << 2); // misa rv32imac
     riscv->ffvm_start_tick = get_tick_count();
+    riscv->pc       = 0x80000000;
     riscv->mtimecmp = 0xFFFFFFFFFFFFFFFFull;
     riscv->freq     = RISCV_CPU_FREQ_MAX;
     fp = fopen(rom, "rb");
