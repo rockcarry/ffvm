@@ -59,8 +59,13 @@
 0xFF000508 只写，指定需要读写的扇区的编号
 0xFF00050C 读写，扇区数据
 
-电源管理：
+电源+中断管理：
 0xFF000600 读写，设置 cpu 运行频率，以 Hz 为单位
+0xFF000604 读写，外部中断源使能，bit0 - audio out，bit1 - audio in，bit2 - 键盘，bit3 - 鼠标，bit4 - ethphy in
+0xFF000608 读写，外部中断标志
+0xFF00060C 读写，audio out size 阈值，当 size 低于阈值时，触发 audio out 中断
+0xFF000610 读写，audio in  size 阈值，当 size 高于阈值时，触发 audio in  中断
+0xFF000614 读写，ethphy in size 阈值，当 size 高于阈值时，触发 ethphy in 中断
 
 网络设备：
 0xFF000700 读写，以太网 phy 输出，数据缓冲区地址
