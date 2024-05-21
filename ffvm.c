@@ -916,8 +916,8 @@ int main(int argc, char *argv[])
 
     next_tick = (uint32_t)get_tick_count();
     while (!(riscv->flags & (FLAG_EXIT))) {
-        for (j = 0; j < 2; j++) {
-            for (i = 0; i < riscv->cpu_freq / RISCV_FRAMERATE / 2; i++) riscv_run(riscv);
+        for (j = 0; j < 10; j++) {
+            for (i = 0; i < riscv->cpu_freq / RISCV_FRAMERATE / 10; i++) riscv_run(riscv);
             riscv->mtimecur = get_tick_count() - riscv->ffvm_start_tick;
             riscv_interrupt(riscv);
         }
