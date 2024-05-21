@@ -256,22 +256,20 @@ static void ffvm_adev_callback(void *ctxt, int cmd, void *buf, int len)
     RISCV *riscv = ctxt;
     switch (cmd) {
     case ADEV_CMD_DATA_RECORD:
-        pthread_mutex_lock(&riscv->audio_lock);
         if (len <= riscv->audio_in_size) {
             uint8_t *rbuf  = &(riscv->mem[riscv->audio_in_addr % MAX_MEM_SIZE]);
             int      avail = riscv->audio_in_size - riscv->audio_in_curr;
-            int      drop  = len - avail;
-            if (drop > 0) {
-                riscv->audio_in_head  = ringbuf_read(rbuf, riscv->audio_in_size, riscv->audio_in_head, NULL, drop);
-                riscv->audio_in_curr -= drop;
+            int      n     = avail < len ? avail : len;
+            if (n > 0) {
+                riscv->audio_in_tail  = ringbuf_write(rbuf, riscv->audio_in_size, riscv->audio_in_tail, buf, n);
+                pthread_mutex_lock(&riscv->audio_lock);
+                riscv->audio_in_curr += n;
+                pthread_mutex_unlock(&riscv->audio_lock);
             }
-            riscv->audio_in_tail  = ringbuf_write(rbuf, riscv->audio_in_size, riscv->audio_in_tail, buf, len);
-            riscv->audio_in_curr += len;
             if (riscv->audio_in_curr >= riscv->irq_ain_thres && (riscv->irq_enable & (FLAG_FFVM_IRQ_AIN)) && !(riscv->irq_flags & (FLAG_FFVM_IRQ_AIN))) {
                 riscv->irq_flags |= FLAG_FFVM_IRQ_AIN;
             }
         }
-        pthread_mutex_unlock(&riscv->audio_lock);
         break;
     }
 }
@@ -327,27 +325,24 @@ static void audio_update(RISCV *riscv, uint32_t counter)
 static void ffvm_ethphy_callback(void *cbctx, char *buf, int len)
 {
     RISCV *riscv = cbctx;
-    pthread_mutex_lock(&riscv->ethphy_lock);
+
     if (sizeof(uint32_t) + len <= riscv->ethphy_in_size) {
-        uint8_t *rbuf = &(riscv->mem[riscv->ethphy_in_addr % MAX_MEM_SIZE]);
-        int      avail= riscv->ethphy_in_size - riscv->ethphy_in_curr;
-        int      drop = sizeof(uint32_t) + len - avail;
-        uint32_t fsize;
-        if (drop > 0) {
-            riscv->ethphy_in_head  = ringbuf_read(rbuf, riscv->ethphy_in_size, riscv->ethphy_in_head, (uint8_t*)&fsize, sizeof(fsize));
-            riscv->ethphy_in_head  = ringbuf_read(rbuf, riscv->ethphy_in_size, riscv->ethphy_in_head, NULL, fsize);
-            riscv->ethphy_in_curr -= sizeof(fsize) + fsize;
-            drop -= sizeof(fsize) + fsize;
+
+        uint8_t *rbuf  = &(riscv->mem[riscv->ethphy_in_addr % MAX_MEM_SIZE]);
+        int      avail = riscv->ethphy_in_size - riscv->ethphy_in_curr;
+        if (sizeof(uint32_t) + len <= avail) {
+            uint32_t fsize = len;
+            riscv->ethphy_in_tail = ringbuf_write(rbuf, riscv->ethphy_in_size, riscv->ethphy_in_tail, (uint8_t*)&fsize, sizeof(fsize));
+            riscv->ethphy_in_tail = ringbuf_write(rbuf, riscv->ethphy_in_size, riscv->ethphy_in_tail, (uint8_t*) buf  , fsize        );
+            pthread_mutex_lock(&riscv->ethphy_lock);
+            riscv->ethphy_in_curr += sizeof(fsize) + len;
+            pthread_mutex_unlock(&riscv->ethphy_lock);
         }
-        fsize = len;
-        riscv->ethphy_in_tail  = ringbuf_write(rbuf, riscv->ethphy_in_size, riscv->ethphy_in_tail, (uint8_t*)&fsize, sizeof(fsize));
-        riscv->ethphy_in_tail  = ringbuf_write(rbuf, riscv->ethphy_in_size, riscv->ethphy_in_tail, (uint8_t*) buf  , fsize        );
-        riscv->ethphy_in_curr += sizeof(fsize) + len;
+
         if (riscv->ethphy_in_curr >= riscv->irq_ethp_thres && (riscv->irq_enable & (FLAG_FFVM_IRQ_ETHPHY)) && !(riscv->irq_flags & (FLAG_FFVM_IRQ_ETHPHY))) {
             riscv->irq_flags |= FLAG_FFVM_IRQ_ETHPHY;
         }
     }
-    pthread_mutex_unlock(&riscv->ethphy_lock);
 }
 
 #define RISCV_CSR_MSTATUS         0x300
