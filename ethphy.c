@@ -58,7 +58,7 @@ void* ethphy_open(int dev, PFN_ETHPHY_CALLBACK callback, void *cbctx)
         printf("Enter the interface number (1-%d):", i);
         scanf("%d", &n);
     } else {
-        i = dev;
+        n = dev;
     }
 
     if (n < 1 || n > i) {

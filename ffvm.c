@@ -24,12 +24,12 @@
 #define REG_FFVM_CLRSCR           0xFF000010
 #define REG_FFVM_GOTOXY           0xFF000014
 
-#define REG_FFVM_KEYBD1           0xFF000110
-#define REG_FFVM_KEYBD2           0xFF000114
-#define REG_FFVM_KEYBD3           0xFF000118
-#define REG_FFVM_KEYBD4           0xFF00011C
-#define REG_FFVM_MOUSE_XY         0xFF000120
-#define REG_FFVM_MOUSE_BTN        0xFF000124
+#define REG_FFVM_KEYBD1           0xFF000100
+#define REG_FFVM_KEYBD2           0xFF000104
+#define REG_FFVM_KEYBD3           0xFF000108
+#define REG_FFVM_KEYBD4           0xFF00010C
+#define REG_FFVM_MOUSE_XY         0xFF000110
+#define REG_FFVM_MOUSE_BTN        0xFF000114
 
 #define REG_FFVM_DISP_WH          0xFF000200
 #define REG_FFVM_DISP_ADDR        0xFF000204
@@ -492,7 +492,7 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
     case REG_FFVM_DISK_SECTOR_IDX: fseeko(riscv->disk_fp, data * RISCV_DISK_SECTSIZE, SEEK_SET); return;
     case REG_FFVM_DISK_SECTOR_DAT: fputc(data, riscv->disk_fp); return;
     case REG_FFVM_CPU_FREQ: data = data < RISCV_CPU_FREQ_MAX ? data : RISCV_CPU_FREQ_MAX; break;
-    case REG_FFVM_ETHPHY_OUT_SIZE: ethphy_send(riscv->ethphy_dev, (char*)riscv->mem + (addr & (MAX_MEM_SIZE - 1)), data); break;
+    case REG_FFVM_ETHPHY_OUT_SIZE: ethphy_send(riscv->ethphy_dev, (char*)riscv->mem + (riscv->ethphy_out_addr & (MAX_MEM_SIZE - 1)), data); break;
     case REG_FFVM_ETHPHY_IN_LOCK:
         if (data) pthread_mutex_lock(&riscv->ethphy_lock);
         else    pthread_mutex_unlock(&riscv->ethphy_lock);
