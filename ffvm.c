@@ -91,8 +91,6 @@ typedef struct {
     #define MAX_MEM_SIZE (64 * 1024 * 1024)
     uint8_t  mem[MAX_MEM_SIZE];
 
-    #define FLAG_EXIT (1 << 0)
-    uint32_t flags;
     uint64_t ffvm_start_tick;
     uint32_t ffvm_realtime_diff;
     void    *adev, *vdev;
@@ -339,7 +337,6 @@ static void ffvm_ethphy_callback(void *cbctx, char *buf, int len)
 #define RISCV_CSR_MTVAL           0x343
 #define RISCV_CSR_MIP             0x344
 
-#define INTR_MACHINE_SOFTWARE     3
 #define INTR_MACHINE_TIMER        7
 #define INTR_MACHINE_EXTERNAL     11
 
@@ -364,8 +361,8 @@ static void riscv_interrupt(RISCV *riscv)
     // update mcause
     riscv->csr[RISCV_CSR_MCAUSE] = (1 << 31) | source; // interrupt and source
 
-    uint32_t isr = riscv->csr[RISCV_CSR_MTVEC] & ~0x3;
-    int      mode= riscv->csr[RISCV_CSR_MTVEC] &  0x3;
+    uint32_t isr  = riscv->csr[RISCV_CSR_MTVEC] & ~0x3;
+    int      mode = riscv->csr[RISCV_CSR_MTVEC] &  0x3;
     if (mode == 1 && (riscv->csr[RISCV_CSR_MCAUSE] & (1 << 31))) isr += 4 * (riscv->csr[RISCV_CSR_MCAUSE] & ~(1 << 31));
     riscv->csr[RISCV_CSR_MEPC] = riscv->pc; // update mepc
     riscv->pc = isr;
@@ -482,14 +479,6 @@ static void riscv_memw32(RISCV *riscv, uint32_t addr, uint32_t data)
 static int32_t signed_extend(uint32_t a, int size)
 {
     return (a & (1 << (size - 1))) ? (a | ~((1 << size) - 1)) : a;
-}
-
-static uint32_t handle_ecall(RISCV *riscv)
-{
-    switch (riscv->x[17]) {
-    case 93: riscv->flags |= FLAG_EXIT; return 0; // sys_exit
-    default: return 0;
-    }
 }
 
 static void riscv_execute_rv16(RISCV *riscv, uint16_t instruction)
@@ -767,7 +756,10 @@ static void riscv_execute_rv32(RISCV *riscv, uint32_t instruction)
         switch (inst_funct3) {
         case 0:
             if (inst_csr == 0) { // ecall
-                riscv->x[10] = handle_ecall(riscv);
+                riscv->csr[RISCV_CSR_MCAUSE] = 11; // ecall from m-mode
+                riscv->csr[RISCV_CSR_MEPC]   = riscv->pc;
+                riscv->pc = riscv->csr[RISCV_CSR_MTVEC] & ~0x3;
+                bflag = 1;
             } else if (inst_csr == 1) { // ebreak
             } else if (inst_csr == 0x302) { // mret
                 bflag = 1;
@@ -885,7 +877,7 @@ int main(int argc, char *argv[])
     console_init();
 
     next_tick = (uint32_t)get_tick_count();
-    while (!(riscv->flags & (FLAG_EXIT))) {
+    while (riscv->cpu_freq) {
         for (j = 0; j < 10; j++) {
             for (i = 0; i < riscv->cpu_freq / RISCV_FRAMERATE / 10; i++) riscv_run(riscv);
             riscv->mtimecur = get_tick_count() - riscv->ffvm_start_tick;
