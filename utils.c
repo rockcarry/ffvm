@@ -20,11 +20,12 @@ uint64_t get_tick_count(void)
 
 static pthread_mutex_t s_lock = (pthread_mutex_t)NULL;
 static pthread_t    s_hthread = (pthread_t      )NULL;
+#define MAXBUFZIE   256
 #define FLAG_EXIT  (1 << 0)
 #define FLAG_PAUSE (1 << 1)
 static int s_flags = 0;
 static int s_head, s_tail, s_size;
-static int s_buff[256];
+static int s_buff[MAXBUFZIE];
 
 static void* console_thread_proc(void *arg)
 {
@@ -32,9 +33,10 @@ static void* console_thread_proc(void *arg)
         if (s_flags & FLAG_PAUSE) { usleep(100 * 1000); continue; }
         int c = fgetc(stdin);
         pthread_mutex_lock(&s_lock);
-        if (!(s_flags & FLAG_PAUSE) && s_size < sizeof(s_buff)) {
-            s_buff[s_tail] = c;
-            s_tail = (s_tail + 1) % sizeof(s_buff); s_size++;
+        if (!(s_flags & FLAG_PAUSE)) {
+            s_buff[s_tail++] = c; s_tail %= MAXBUFZIE;
+            if (s_size < MAXBUFZIE) s_size++;
+            else s_head = s_tail;
         }
         pthread_mutex_unlock(&s_lock);
     }
@@ -86,10 +88,7 @@ int console_getc(void)
     int c = EOF;
     pthread_mutex_lock(&s_lock);
     s_flags &= ~FLAG_PAUSE;
-    if (s_size) {
-        c = s_buff[s_head];
-        s_head = (s_head + 1) % sizeof(s_buff); s_size--;
-    }
+    if (s_size) { c = s_buff[s_head++]; s_head %= MAXBUFZIE; s_size--; }
     pthread_mutex_unlock(&s_lock);
     return c;
 }
