@@ -57,6 +57,7 @@ void* ethphy_open(int dev, PFN_ETHPHY_CALLBACK callback, void *cbctx)
     }
 
     phy->pcap_open_live   = (void*)GetProcAddress(phy->hDll, "pcap_open_live");
+    phy->pcap_close       = (void*)GetProcAddress(phy->hDll, "pcap_close");
     phy->pcap_findalldevs = (void*)GetProcAddress(phy->hDll, "pcap_findalldevs");
     phy->pcap_freealldevs = (void*)GetProcAddress(phy->hDll, "pcap_freealldevs");
     phy->pcap_loop        = (void*)GetProcAddress(phy->hDll, "pcap_loop");
