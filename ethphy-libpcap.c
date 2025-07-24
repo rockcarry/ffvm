@@ -6,12 +6,8 @@
 #include "ethphy.h"
 
 typedef struct {
-    pcap_t   *pcap;
-    #define FLAG_EXIT (1 << 0)
-    uint32_t  flags;
-    pthread_t thread;
-
     HMODULE   hDll;
+    pcap_t   *pcap;
     pcap_t* (*pcap_open_live)(const char*, int, int, int, char*);
     void    (*pcap_close)(pcap_t*);
     int     (*pcap_findalldevs)(pcap_if_t**, char*);
@@ -21,6 +17,9 @@ typedef struct {
     int     (*pcap_sendpacket)(pcap_t*, const u_char*, int);
     char*   (*pcap_geterr)(pcap_t*);
 
+    #define FLAG_EXIT (1 << 0)
+    uint32_t  flags;
+    pthread_t thread;
     PFN_ETHPHY_CALLBACK callback;
     void               *cbctx;
 } PHYDEV;
@@ -40,15 +39,15 @@ static void* ethphy_work_proc(void *arg)
     return NULL;
 }
 
-void* ethphy_open(int dev, PFN_ETHPHY_CALLBACK callback, void *cbctx)
+void* ethphy_open(char *ifname, PFN_ETHPHY_CALLBACK callback, void *cbctx)
 {
-    pcap_t    *pcap = NULL;
-    pcap_if_t *alldevs, *d;
-    char errbuf[PCAP_ERRBUF_SIZE];
-    int  i = 0, n;
-
     PHYDEV *phy = calloc(1, sizeof(PHYDEV));
     if (!phy) return NULL;
+
+    pcap_t    *pcap    = NULL;
+    pcap_if_t *alldevs = NULL, *d;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    int  i = 0, n = -1;
 
     phy->hDll = LoadLibrary(TEXT("wpcap.dll"));
     if (!phy->hDll) {
@@ -78,6 +77,7 @@ void* ethphy_open(int dev, PFN_ETHPHY_CALLBACK callback, void *cbctx)
 
     for (d = alldevs; d; d = d->next) {
         printf("%d. %s", ++i, d->name);
+        if (ifname && strlen(ifname) > 38 && strstr(d->name, ifname)) { n = i; break; }
         if (d->description) {
             printf(" (%s)\n", d->description);
         } else {
@@ -90,16 +90,13 @@ void* ethphy_open(int dev, PFN_ETHPHY_CALLBACK callback, void *cbctx)
         goto failed;
     }
 
-    if (dev < 1 || dev > i) {
+    if (n == -1) {
         printf("Enter the interface number (1-%d):", i);
         scanf("%d", &n);
-    } else {
-        n = dev;
     }
 
     if (n < 1 || n > i) {
         printf("\nInterface number out of range.\n");
-        phy->pcap_freealldevs(alldevs);
         goto failed;
     }
 
@@ -115,7 +112,6 @@ void* ethphy_open(int dev, PFN_ETHPHY_CALLBACK callback, void *cbctx)
         )) == NULL)
     {
         fprintf(stderr, "\nUnable to open the adapter. %s is not supported by WinPcap\n", d->name);
-        phy->pcap_freealldevs(alldevs);
         goto failed;
     }
 
@@ -129,7 +125,9 @@ void* ethphy_open(int dev, PFN_ETHPHY_CALLBACK callback, void *cbctx)
     return phy;
 
 failed:
-    ethphy_close(phy);
+    if (alldevs) phy->pcap_freealldevs(alldevs);
+    if (phy->hDll) CloseHandle(phy->hDll);
+    free(phy);
     return NULL;
 }
 

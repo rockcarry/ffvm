@@ -823,7 +823,7 @@ void riscv_run(RISCV *riscv)
     riscv->x[0] = 0;
 }
 
-RISCV* riscv_init(char *rom, char *disk, int ethdev)
+RISCV* riscv_init(char *rom, char *disk, char *ethdev)
 {
     FILE  *fp    = NULL;
     RISCV *riscv = calloc(1, sizeof(RISCV));
@@ -858,20 +858,20 @@ int main(int argc, char *argv[])
 {
     char *rom    = "test.rom";
     char *disk   = "disk.img";
-    int   ethdev = -1;
+    char *ethdev = "tap-win32";
     uint32_t next_tick = 0, run_counter = 0;
     int32_t  sleep_tick, i, j;
     RISCV   *riscv = NULL;
 
     for (i = 1; i < argc; i++) {
-        if      (strstr(argv[i], "--disk="  ) == argv[i]) disk   = argv[i] + sizeof("--disk=") - 1;
-        else if (strstr(argv[i], "--ethdev=") == argv[i]) ethdev = atoi(argv[i] + sizeof("--ethdev=") - 1);
+        if      (strstr(argv[i], "--disk="  ) == argv[i]) disk   = argv[i] + sizeof("--disk="  ) - 1;
+        else if (strstr(argv[i], "--ethdev=") == argv[i]) ethdev = argv[i] + sizeof("--ethdev=") - 1;
         else rom = argv[i];
     }
 
     printf("rom   : %s\n", rom   );
     printf("disk  : %s\n", disk  );
-    printf("ethdev: %d\n", ethdev);
+    printf("ethdev: %s\n", ethdev);
 
     if (!(riscv = riscv_init(rom, disk, ethdev))) return 0;
     console_init();
