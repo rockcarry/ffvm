@@ -13,8 +13,8 @@
 
 #define FFVM_ADEV_MAX_BUFNUM      5
 
-#define RISCV_CPU_FREQ_MAX       (100*1000*1000)
-#define RISCV_FRAMERATE           100
+#define RISCV_CPU_FREQ_MAX       (200*1000*1000)
+#define RISCV_FRAMERATE           200
 #define RISCV_DISK_SECTSIZE       512
 
 #define REG_FFVM_STDIO            0xFF000000
@@ -193,28 +193,29 @@ static void disp_init(RISCV *riscv, int wh)
 
 static void disp_refresh(RISCV *riscv, uint32_t counter)
 {
-    int refresh = 0, rx, ry, dw, rw, rh, i;
+    int refresh = 0;
     if (riscv->disp_refresh_div == 0 && riscv->disp_refresh_wh) refresh = 1;
     if (riscv->disp_refresh_div) {
         if (++riscv->disp_refresh_cnt >= riscv->disp_refresh_div) riscv->disp_refresh_cnt = 0, refresh = 1;
     }
-    if (refresh) {
-        dw = (riscv->disp_wh         >> 0) & 0xFFFF;
-        rx = (riscv->disp_refresh_xy >> 0) & 0xFFFF;
-        ry = (riscv->disp_refresh_xy >>16) & 0xFFFF;
-        rw = (riscv->disp_refresh_wh >> 0) & 0xFFFF;
-        rh = (riscv->disp_refresh_wh >>16) & 0xFFFF;
+    if (refresh && riscv->disp_refresh_wh) {
         BMP *bmp = vdev_lock(riscv->vdev);
         if (bmp) {
+            int dw = (riscv->disp_wh         >> 0) & 0xFFFF;
+            int rx = (riscv->disp_refresh_xy >> 0) & 0xFFFF;
+            int ry = (riscv->disp_refresh_xy >>16) & 0xFFFF;
+            int rw = (riscv->disp_refresh_wh >> 0) & 0xFFFF;
+            int rh = (riscv->disp_refresh_wh >>16) & 0xFFFF;
             uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr % MAX_MEM_SIZE) + ry * dw + rx;
             uint32_t *dst = (uint32_t*)bmp->pdata + ry * dw + rx;
-            for (i = 0; i < rh; i++) {
+            for (int i = 0; i < rh; i++) {
                 memcpy(dst, src, rw * sizeof(uint32_t));
                 src += dw, dst += dw;
             }
             vdev_unlock(riscv->vdev);
         }
-        if (riscv->disp_refresh_div == 0) riscv->disp_refresh_wh = 0;
+        riscv->disp_refresh_xy = riscv->disp_wh;
+        riscv->disp_refresh_wh = 0;
     }
     if (counter % RISCV_FRAMERATE == 0) {
         char *state = (char*)vdev_get(riscv->vdev, "state", NULL);
