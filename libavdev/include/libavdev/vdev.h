@@ -5,34 +5,43 @@
 
 #ifndef DEFINE_TYPE_BITMAP
 #define DEFINE_TYPE_BITMAP
-typedef void (*PFN_SETPIXEL)(void *pb, int x, int y, int c);
-typedef int  (*PFN_GETPIXEL)(void *pb, int x, int y);
-typedef struct {
+typedef struct { // note: this struct must keep same as libfuncs/bitmap.h 
     int       width;
     int       height;
     int       stride;
     int       cdepth;
     uint8_t  *pdata;
     uint32_t *ppal;
-    PFN_SETPIXEL setpixel;
-    PFN_GETPIXEL getpixel;
+    void (*setpixel)(void *pb, int x, int y, int c);
+    int  (*getpixel)(void *pb, int x, int y);
 } BMP;
 #endif
 
 enum {
-    DEV_MSG_VDEV_CLOSE ,
-    DEV_MSG_KEY_EVENT  ,
-    DEV_MSG_MOUSE_EVENT,
+    VDEV_CALLBACK_VDEV_INITED = 0x10170000,
+    VDEV_CALLBACK_VDEV_RESIZE,
+    VDEV_CALLBACK_VDEV_CLOSED,
 };
 
-typedef int (*PFN_VDEV_MSG_CB)(void *cbctx, int msg, uint32_t param1, uint32_t param2, uint32_t param3);
+typedef long (*PFN_VDEV_CB)(void *cbctx, int type, void *buf, int size);
 
-// params: "fullscreen" - use directdraw fullscreen mode, "inithidden" - init window but not show it
-void* vdev_init  (int w, int h, char *params, PFN_VDEV_MSG_CB callback, void *cbctx);
-void  vdev_exit  (void *ctx, int close);
-BMP * vdev_lock  (void *ctx);
-void  vdev_unlock(void *ctx);
-void  vdev_set   (void *ctx, char *name, void *data);
-long  vdev_get   (void *ctx, char *name, void *data);
+void* vdev_init(void *params, PFN_VDEV_CB callback, void *cbctx); // params: example: "surfaces:3,resize,w:640,h:480", if NULL return NULL
+void  vdev_exit(void *ctx);
+
+BMP*  vdev_lock  (void *ctx, int idx);
+void  vdev_unlock(void *ctx, int idx);
+void  vdev_render(void *ctx);
+
+long  vdev_set (void *ctx, char *key, void *val);
+long  vdev_get (void *ctx, char *key, void *val);
+void  vdev_dump(void *ctx, char *str, int len, int page);
+
+#define VDEV_KEY_STATE           "i_state"            // set/get, get VDEV_CALLBACK_VDEV_CLOSED - indicate window closed
+#define VDEV_KEY_IDEV            "p_idev"             // get only, for vdev-win32 to get idev
+#define VDEV_KEY_SURFACE_PARAMS  "s_surface_params0"  // set, surface params
+                                                      // example: "pixfmt:argb,w:640,h:480,x:center,y:center"
+                                                      //          "parent:1,w:0.5,h:0.1,x:center,y:0"
+                                                      //          "w:0.999999,h:8,x:center,y:-0.000001"
+                                                      // pixfmt can be "argb", "yuyv", "uyvy", "nv12", "nv21", "yuv420p"
 
 #endif

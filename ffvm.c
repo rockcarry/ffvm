@@ -5,6 +5,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <libavdev/acap.h>
 #include <libavdev/adev.h>
 #include <libavdev/vdev.h>
 #include <libavdev/idev.h>
@@ -93,7 +94,7 @@ typedef struct {
 
     uint64_t ffvm_start_tick;
     uint32_t ffvm_realtime_diff;
-    void    *adev, *vdev;
+    void    *acap, *adev, *vdev;
     IDEV    *idev;
     uint8_t *adev_out_buf;
     int      adev_out_len;
@@ -183,11 +184,17 @@ static void disp_init(RISCV *riscv, int wh)
 {
     if (riscv->disp_wh != wh) {
         riscv->disp_wh  = wh;
-        vdev_exit(riscv->vdev, 1); riscv->vdev = riscv->idev = NULL;
-        if (wh) {
-            riscv->vdev = vdev_init((wh >> 0) & 0xFFFF, (wh >> 16) & 0xFFFF, NULL, NULL, NULL);
-            riscv->idev = (void*)vdev_get(riscv->vdev, "idev", NULL);
+        int  w = (wh >> 0 ) & 0xFFFF;
+        int  h = (wh >> 16) & 0xFFFF;
+        char str[64];
+        if (!riscv->vdev) {
+            snprintf(str, sizeof(str), "title:ffvm,w:%d,h:%d,resize", w, h);
+            riscv->vdev = vdev_init(str, NULL, NULL);
+            riscv->idev = (void*)vdev_get(riscv->vdev, VDEV_KEY_IDEV, NULL);
+            vdev_set(riscv->vdev, VDEV_KEY_STATE, (void*)1);
         }
+        snprintf(str, sizeof(str), "sw:%d,sh:%d", w, h);
+        vdev_set(riscv->vdev, VDEV_KEY_SURFACE_PARAMS, str);
     }
 }
 
@@ -198,8 +205,8 @@ static void disp_refresh(RISCV *riscv, uint32_t counter)
     if (riscv->disp_refresh_div) {
         if (++riscv->disp_refresh_cnt >= riscv->disp_refresh_div) riscv->disp_refresh_cnt = 0, refresh = 1;
     }
-    if (refresh && riscv->disp_refresh_wh) {
-        BMP *bmp = vdev_lock(riscv->vdev);
+    if (refresh && riscv->disp_refresh_xy != riscv->disp_wh && riscv->disp_refresh_wh) {
+        BMP *bmp = vdev_lock(riscv->vdev, 0);
         if (bmp) {
             int dw = (riscv->disp_wh         >> 0) & 0xFFFF;
             int rx = (riscv->disp_refresh_xy >> 0) & 0xFFFF;
@@ -207,19 +214,20 @@ static void disp_refresh(RISCV *riscv, uint32_t counter)
             int rw = (riscv->disp_refresh_wh >> 0) & 0xFFFF;
             int rh = (riscv->disp_refresh_wh >>16) & 0xFFFF;
             uint32_t *src = (uint32_t*)(riscv->mem + riscv->disp_addr % MAX_MEM_SIZE) + ry * dw + rx;
-            uint32_t *dst = (uint32_t*)bmp->pdata + ry * dw + rx;
+            uint32_t *dst = (uint32_t*)bmp->pdata + ry * (bmp->stride / sizeof(uint32_t)) + rx;
             for (int i = 0; i < rh; i++) {
                 memcpy(dst, src, rw * sizeof(uint32_t));
-                src += dw, dst += dw;
+                src += dw, dst += (bmp->stride / sizeof(uint32_t));
             }
-            vdev_unlock(riscv->vdev);
+            vdev_unlock(riscv->vdev, 0);
+            vdev_render(riscv->vdev);
+            riscv->disp_refresh_xy = riscv->disp_wh;
+            riscv->disp_refresh_wh = 0;
         }
-        riscv->disp_refresh_xy = riscv->disp_wh;
-        riscv->disp_refresh_wh = 0;
     }
     if (counter % RISCV_FRAMERATE == 0) {
-        char *state = (char*)vdev_get(riscv->vdev, "state", NULL);
-        if (state && strcmp(state, "closed") == 0) riscv->disp_wh = 0;
+        int state = vdev_get(riscv->vdev, VDEV_KEY_STATE, NULL);
+        if (state == VDEV_CALLBACK_VDEV_CLOSED) riscv->disp_wh = 0;
     }
 }
 
@@ -238,26 +246,26 @@ static void disp_bitblt(RISCV *riscv)
     }
 }
 
-static void ffvm_adev_callback(void *ctxt, int cmd, void *buf, int len)
+static long ffvm_acap_callback(void *ctxt, int type, void *buf, int len)
 {
-    RISCV *riscv = ctxt;
-    switch (cmd) {
-    case ADEV_CMD_DATA_RECORD:
-        if (len <= riscv->audio_in_size) {
+    RISCV      *riscv = ctxt;
+    ACAP_FRAME *frame = buf;
+    if (type == ACAP_CALLBACK_DATA && frame && frame->type == ACAP_FRAME_TYPE_PCM) {
+        if (frame->len <= riscv->audio_in_size) {
             uint8_t *rbuf  = &(riscv->mem[riscv->audio_in_addr % MAX_MEM_SIZE]);
             int      curr  = ringbuf_size(riscv->audio_in_head, riscv->audio_in_tail, riscv->audio_in_size);
             int      avail = riscv->audio_in_size - curr - 1;
-            int      n     = avail < len ? avail : len;
+            int      n     = avail < frame->len ? avail : frame->len;
             if (n > 0) {
-                riscv->audio_in_tail = ringbuf_write(rbuf, riscv->audio_in_size, riscv->audio_in_tail, buf, n);
+                riscv->audio_in_tail = ringbuf_write(rbuf, riscv->audio_in_size, riscv->audio_in_tail, frame->buf, n);
                 curr += n;
             }
             if (curr >= riscv->irq_ain_thres && (riscv->irq_enable & (FLAG_FFVM_IRQ_AIN)) && !(riscv->irq_flags & (FLAG_FFVM_IRQ_AIN))) {
                 riscv->irq_flags |= FLAG_FFVM_IRQ_AIN;
             }
         }
-        break;
     }
+    return 0;
 }
 
 static void audio_init(RISCV *riscv, uint32_t fmt, int flag)
@@ -272,21 +280,26 @@ static void audio_init(RISCV *riscv, uint32_t fmt, int flag)
     int in_rate  = riscv->audio_in_fmt  & 0xFFFFFF;
     int out_ch   = riscv->audio_out_fmt >> 24;
     int out_rate = riscv->audio_out_fmt & 0xFFFFFF;
-    if (in_changed || out_changed) {
-        if ((out_changed && riscv->audio_out_fmt) || (!riscv->audio_in_fmt && !riscv->audio_out_fmt)) {
-            free(riscv->adev_out_buf); riscv->adev_out_buf = NULL;
-            adev_exit(riscv->adev);    riscv->adev         = NULL;
+    if (in_changed) {
+        if (riscv->acap) { acap_exit(riscv->acap); riscv->acap = NULL; }
+        if (riscv->audio_in_fmt) {
+            char str[64];
+            snprintf(str, sizeof(str), "samprate:%d,chnnum:%d,frmsize:%d,frmnum:%d", in_rate, in_ch, in_rate / 25, FFVM_ADEV_MAX_BUFNUM);
+            riscv->acap = acap_init(str, ffvm_acap_callback, riscv);
+            acap_set(riscv->acap, ACAP_KEY_STATE, (void*)1);
         }
-        if (riscv->adev == NULL && (riscv->audio_in_fmt || riscv->audio_out_fmt)) {
-            riscv->adev = adev_init(out_rate, out_ch, out_rate / 25, FFVM_ADEV_MAX_BUFNUM);
+    }
+    if (out_changed) {
+        if (riscv->adev) {
+            free(riscv->adev_out_buf); riscv->adev_out_buf = NULL;
+            adev_exit(riscv->adev); riscv->adev = NULL;
+        }
+        if (riscv->audio_out_fmt) {
+            char str[64];
+            snprintf(str, sizeof(str), "samprate:%d,chnnum:%d,frmsize:%d,frmnum:%d", out_rate, out_ch, out_rate / 25, FFVM_ADEV_MAX_BUFNUM);
+            riscv->adev = adev_init(str, NULL, NULL);
             riscv->adev_out_len = out_rate / 25 * sizeof(int16_t) * out_ch;
             riscv->adev_out_buf = malloc(riscv->adev_out_len);
-            adev_set(riscv->adev, "callback", ffvm_adev_callback);
-            adev_set(riscv->adev, "cbctx"   , riscv);
-        }
-        if (riscv->audio_in_fmt) {
-            adev_record(riscv->adev, 0, 0, 0, 0, 0);
-            adev_record(riscv->adev, 1, in_rate, in_ch, in_rate / 25, FFVM_ADEV_MAX_BUFNUM);
         }
     }
 }
@@ -296,12 +309,12 @@ static void audio_update(RISCV *riscv, uint32_t counter)
     if (!riscv->audio_out_size) return;
     uint8_t *rbuf = &(riscv->mem[riscv->audio_out_addr % MAX_MEM_SIZE]);
     int      curr = ringbuf_size(riscv->audio_out_head, riscv->audio_out_tail, riscv->audio_out_size);
-    while (adev_get(riscv->adev, "bufnum", NULL) < FFVM_ADEV_MAX_BUFNUM && curr) {
+    while (curr) {
         int n = curr < riscv->adev_out_len ? curr : riscv->adev_out_len;
         if (n) {
-            riscv->audio_out_head = ringbuf_read(rbuf, riscv->audio_out_size, riscv->audio_out_head, riscv->adev_out_buf, n);
-            curr -= n;
-            adev_play(riscv->adev, riscv->adev_out_buf, n, 0);
+            int head = ringbuf_read(rbuf, riscv->audio_out_size, riscv->audio_out_head, riscv->adev_out_buf, n);
+            if (0 != adev_play(riscv->adev, riscv->adev_out_buf, n, 0)) break;
+            riscv->audio_out_head = head; curr -= n;
         }
     }
     if (curr <= riscv->irq_aout_thres && (riscv->irq_enable & (FLAG_FFVM_IRQ_AOUT)) && !(riscv->irq_flags & (FLAG_FFVM_IRQ_AOUT))) {
@@ -422,13 +435,13 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
     case REG_FFVM_MTIMECURH: return riscv->mtimecur >> 32;
     case REG_FFVM_MTIMECMPL: return riscv->mtimecmp >>  0;
     case REG_FFVM_MTIMECMPH: return riscv->mtimecmp >> 32;
-    case REG_FFVM_MOUSE_XY : return (riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16);
-    case REG_FFVM_MOUSE_BTN: return (riscv->idev->mouse_btns);
+    case REG_FFVM_MOUSE_XY : return riscv->idev ? ((riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16)) : 0;
+    case REG_FFVM_MOUSE_BTN: return riscv->idev ? (riscv->idev->mouse_btns) : 0;
     case REG_FFVM_DISK_SECTOR_NUM : return get_file_size(riscv->disk_fp) / RISCV_DISK_SECTSIZE;
     case REG_FFVM_DISK_SECTOR_SIZE: return RISCV_DISK_SECTSIZE;
     case REG_FFVM_DISK_SECTOR_DAT : return fgetc(riscv->disk_fp);
     }
-    if (addr >= REG_FFVM_KEYBD1 && addr <= REG_FFVM_KEYBD4) { return *(riscv->idev->key_bits + (addr - REG_FFVM_KEYBD1) / sizeof(uint32_t)); }
+    if (addr >= REG_FFVM_KEYBD1 && addr <= REG_FFVM_KEYBD4) { return riscv->idev ? *(riscv->idev->key_bits + (addr - REG_FFVM_KEYBD1) / sizeof(uint32_t)) : 0; }
     if (addr >= REG_FFVM_DISP_WH && addr <= REG_FFVM_DISP_BITBLT_WH) return *(&riscv->disp_wh + (addr - REG_FFVM_DISP_WH) / sizeof(uint32_t));
     if (addr >= REG_FFVM_AUDIO_OUT_FMT   && addr <= REG_FFVM_AUDIO_OUT_SIZE) return *(&riscv->audio_out_fmt  + (addr - REG_FFVM_AUDIO_OUT_FMT  ) / sizeof(uint32_t));
     if (addr >= REG_FFVM_AUDIO_IN_FMT    && addr <= REG_FFVM_AUDIO_IN_SIZE ) return *(&riscv->audio_in_fmt   + (addr - REG_FFVM_AUDIO_IN_FMT   ) / sizeof(uint32_t));
@@ -848,8 +861,9 @@ void riscv_free(RISCV *riscv)
 {
     if (!riscv) return;
     ethphy_close(riscv->ethphy_dev);
-    vdev_exit(riscv->vdev, 1);
+    vdev_exit(riscv->vdev);
     adev_exit(riscv->adev);
+    acap_exit(riscv->acap);
     if (riscv->disk_fp) fclose(riscv->disk_fp);
     free(riscv->adev_out_buf);
     free(riscv);
