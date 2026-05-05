@@ -201,11 +201,12 @@ static void disp_init(RISCV *riscv, int wh)
 static void disp_refresh(RISCV *riscv, uint32_t counter)
 {
     int refresh = 0;
-    if (riscv->disp_refresh_div == 0 && riscv->disp_refresh_wh) refresh = 1;
-    if (riscv->disp_refresh_div) {
-        if (++riscv->disp_refresh_cnt >= riscv->disp_refresh_div) riscv->disp_refresh_cnt = 0, refresh = 1;
+    if (riscv->disp_refresh_cnt == (riscv->disp_refresh_div & 0xFFFF)) {
+        riscv->disp_refresh_cnt = 0, refresh = 1;
+    } else {
+        riscv->disp_refresh_cnt ++;
     }
-    if (refresh && riscv->disp_refresh_xy != riscv->disp_wh && riscv->disp_refresh_wh) {
+    if (refresh && ((riscv->disp_refresh_div >> 16) || (riscv->disp_refresh_xy != riscv->disp_wh && riscv->disp_refresh_wh))) {
         BMP *bmp = vdev_lock(riscv->vdev, 0);
         if (bmp) {
             int dw = (riscv->disp_wh         >> 0) & 0xFFFF;
@@ -221,8 +222,10 @@ static void disp_refresh(RISCV *riscv, uint32_t counter)
             }
             vdev_unlock(riscv->vdev, 0);
             vdev_render(riscv->vdev);
-            riscv->disp_refresh_xy = riscv->disp_wh;
-            riscv->disp_refresh_wh = 0;
+            if (!(riscv->disp_refresh_div >> 16)) {
+                riscv->disp_refresh_xy = riscv->disp_wh;
+                riscv->disp_refresh_wh = 0;
+            }
         }
     }
     if (counter % RISCV_FRAMERATE == 0) {
