@@ -5,10 +5,18 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
+#ifdef WITH_LIBAVDEV
 #include <libavdev/acap.h>
 #include <libavdev/adev.h>
 #include <libavdev/vdev.h>
 #include <libavdev/idev.h>
+#endif
+#ifdef WITH_LIBHW
+#include <libhw/acap.h>
+#include <libhw/adev.h>
+#include <libhw/vdev.h>
+#include <libhw/idev.h>
+#endif
 #include "ethphy.h"
 #include "utils.h"
 
@@ -438,8 +446,8 @@ static uint32_t riscv_memr32(RISCV *riscv, uint32_t addr)
     case REG_FFVM_MTIMECURH: return riscv->mtimecur >> 32;
     case REG_FFVM_MTIMECMPL: return riscv->mtimecmp >>  0;
     case REG_FFVM_MTIMECMPH: return riscv->mtimecmp >> 32;
-    case REG_FFVM_MOUSE_XY : return riscv->idev ? ((riscv->idev->mouse_x << 0) | (riscv->idev->mouse_y << 16)) : 0;
-    case REG_FFVM_MOUSE_BTN: return riscv->idev ? (riscv->idev->mouse_btns) : 0;
+    case REG_FFVM_MOUSE_XY : return riscv->idev ? ((riscv->idev->curr_mouse_x << 0) | (riscv->idev->curr_mouse_y << 16)) : 0;
+    case REG_FFVM_MOUSE_BTN: return riscv->idev ? (riscv->idev->curr_mouse_btns) : 0;
     case REG_FFVM_DISK_SECTOR_NUM : return get_file_size(riscv->disk_fp) / RISCV_DISK_SECTSIZE;
     case REG_FFVM_DISK_SECTOR_SIZE: return RISCV_DISK_SECTSIZE;
     case REG_FFVM_DISK_SECTOR_DAT : return fgetc(riscv->disk_fp);

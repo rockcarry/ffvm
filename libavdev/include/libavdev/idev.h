@@ -5,7 +5,13 @@
 
 enum {
     IDEV_CALLBACK_KEY_EVENT = 0x10180000,
-    IDEV_CALLBACK_MOUSE_EVENT,
+    IDEV_CALLBACK_MOUSE_MOVE,
+    IDEV_CALLBACK_MOUSE_LBTNUP,
+    IDEV_CALLBACK_MOUSE_LBTNDOWN,
+    IDEV_CALLBACK_MOUSE_MBTNUP,
+    IDEV_CALLBACK_MOUSE_MBTNDOWN,
+    IDEV_CALLBACK_MOUSE_RBTNUP,
+    IDEV_CALLBACK_MOUSE_RBTNDOWN,
 };
 
 typedef long (*PFN_IDEV_CB)(void *cbctx, int type, void *buf, int len);
@@ -14,7 +20,8 @@ typedef long (*PFN_IDEV_CB)(void *cbctx, int type, void *buf, int len);
 #define DEFINE_TYPE_IDEV
 typedef struct {
     uint32_t  key_bits[8];
-    int32_t   mouse_x, mouse_y, mouse_btns;
+    int32_t   last_mouse_x, last_mouse_y, last_mouse_btns;
+    int32_t   curr_mouse_x, curr_mouse_y, curr_mouse_btns;
     PFN_IDEV_CB callback;
     void       *cbctx;
 } IDEV;

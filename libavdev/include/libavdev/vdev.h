@@ -20,6 +20,7 @@ typedef struct { // note: this struct must keep same as libfuncs/bitmap.h
 enum {
     VDEV_CALLBACK_VDEV_INITED = 0x10170000,
     VDEV_CALLBACK_VDEV_RESIZE,
+    VDEV_CALLBACK_VDEV_PAINT ,
     VDEV_CALLBACK_VDEV_CLOSED,
 };
 
@@ -37,11 +38,14 @@ long  vdev_get (void *ctx, char *key, void *val);
 void  vdev_dump(void *ctx, char *str, int len, int page);
 
 #define VDEV_KEY_STATE           "i_state"            // set/get, get VDEV_CALLBACK_VDEV_CLOSED - indicate window closed
-#define VDEV_KEY_IDEV            "p_idev"             // get only, for vdev-win32 to get idev
+#define VDEV_KEY_WIDTH           "i_width"            // get only, return vdev width
+#define VDEV_KEY_HEIGHT          "i_height"           // get only, return vdev height
 #define VDEV_KEY_SURFACE_PARAMS  "s_surface_params0"  // set, surface params
                                                       // example: "pixfmt:argb,w:640,h:480,x:center,y:center"
                                                       //          "parent:1,w:0.5,h:0.1,x:center,y:0"
                                                       //          "w:0.999999,h:8,x:center,y:-0.000001"
                                                       // pixfmt can be "argb", "yuyv", "uyvy", "nv12", "nv21", "yuv420p"
+#define VDEV_KEY_IDEV            "p_idev"             // get only, get idev context
+#define VDEV_KEY_HWND            "p_hwnd"             // get only, get vdev hwnd
 
 #endif
